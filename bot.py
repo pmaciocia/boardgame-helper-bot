@@ -15,6 +15,44 @@ async def on_ready():
     print(f'{bot.user} has connected to Discord!')
 
 
+@bot.command(name='bg', help='Lookup a board game')
+async def lookup(ctx, *, message):
+    game_name = message
+
+    games = bgg.games(game_name)     
+    if len(games) == 0:
+        response = f"Hmm... not heard of that one!"
+        await ctx.send(response)
+    elif len(games) == 1:
+        embed = game_embed(games[0], games[0].name,"")
+        await ctx.send(embed=embed)
+    else:
+        response = f"Hmm... not heard of that one!"
+        await ctx.send(response)
+
+def game_embed(game, title, desc):      
+    name = game.name
+    min_player = game.min_players
+    max_player = game.max_players
+    recommend = max((rank.best, rank.player_count) for rank in game._player_suggestion)[1]
+    link = f"https://boardgamegeek.com/boardgame/{game.id}"
+    weight = game.rating_average_weight
+
+    embed = discord.Embed(title=name,
+                    url=link,
+                    description=desc)
+
+    embed.add_field(name="Players", value=f"{min_player}-{max_player}", inline=True)
+    embed.add_field(name="Best", value=recommend, inline=True)
+
+    description=game.description
+    if len(game.description) > 300:
+        description = description[:297] + "..."
+
+    embed.add_field(name="Description", value=description)
+    embed.set_thumbnail(url=game.thumbnail)
+    return embed
+
 @bot.command(name='add_game', help='Add a game you will be bringing')
 async def add_game(ctx, *, message):
     user = ctx.message.author
