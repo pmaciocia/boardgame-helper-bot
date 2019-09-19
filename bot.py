@@ -4,6 +4,12 @@ import discord
 from discord.ext import commands
 from boardgamegeek import BGGClient
 
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
+logger = logging.getLogger("boardgame.helper")
+
 token = "NjIzODc1NDUwMDA2OTI5NDE5.XYI4Zg.JAOi5EtyGT_YufPf2urK915e26Y"
 
 bgg = BGGClient()
@@ -12,7 +18,7 @@ bot = commands.Bot(command_prefix='!')
 
 @bot.event
 async def on_ready():
-    print(f'{bot.user} has connected to Discord!')
+    logger.info(f'{bot.user} has connected to Discord!')
 
 @bot.command(name='bg', help='Lookup a board game')
 async def lookup(ctx, *, message):
@@ -22,6 +28,7 @@ async def lookup(ctx, *, message):
     game_name = message
     print(f"Looking up game '{message}' for user {ctx.message.author.id}")
 
+    logger.info(f"Looking up game '{message}' for user {user.id}")
     await ctx.trigger_typing()
 
     games = []
