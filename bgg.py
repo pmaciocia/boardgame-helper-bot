@@ -6,7 +6,7 @@ from boardgamegeek import BGGClient
 
 logger = logging.getLogger("boardgame.helper.bgg")
 
-class BGGCog(commands.Cog):
+class BGGCog(commands.Cog, name="BGG"):
     def __init__(self, bot):
         self.bot = bot
         self._bgg = BGGClient()

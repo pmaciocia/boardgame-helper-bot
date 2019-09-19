@@ -18,13 +18,13 @@ class Meetup(commands.Cog):
 
         if user in self._games:
             game = self._games[user]
-            response = f"{user.mention()}, you are already bringing {game.name}"
+            response = f"{user.mention}, you are already bringing {game.name}"
             await ctx.send(response)
             return
 
         game_name = message
 
-        bgg = self.bot.get_cog("BGGCog")
+        bgg = self.bot.get_cog("BGG")
         if bgg:
             await ctx.trigger_typing()
             bgg_games = await bgg.fetch_game(game_name)
