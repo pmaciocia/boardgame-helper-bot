@@ -57,24 +57,15 @@ async def lookup(ctx, *, message):
         await ctx.send(embed=embed)
 
 def game_embed(game, title, desc):      
-    name = game.name
-    min_player = game.min_players
-    max_player = game.max_players
     recommend = max((rank.best, rank.player_count) for rank in game._player_suggestion)[1]
     link = f"https://boardgamegeek.com/boardgame/{game.id}"
-    weight = game.rating_average_weight
-
-    embed = discord.Embed(title=name,
-                    url=link,
-                    description=desc)
-
-    embed.add_field(name="Players", value=f"{min_player}-{max_player}", inline=True)
-    embed.add_field(name="Best", value=recommend, inline=True)
-
     description=game.description
     if len(game.description) > 300:
         description = description[:297] + "..."
-
+    
+    embed = discord.Embed(title=game.name, url=link, description=desc)
+    embed.add_field(name="Players", value=f"{game.min_players}-{game.max_players}", inline=True)
+    embed.add_field(name="Best", value=recommend, inline=True)
     embed.add_field(name="Description", value=description)
     embed.set_thumbnail(url=game.thumbnail)
     return embed
