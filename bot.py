@@ -25,8 +25,8 @@ async def lookup(ctx, *, message):
     if len(message) == 0:
         return
 
+    user = ctx.message.author
     game_name = message
-    print(f"Looking up game '{message}' for user {ctx.message.author.id}")
 
     logger.info(f"Looking up game '{message}' for user {user.id}")
     await ctx.trigger_typing()
@@ -41,10 +41,13 @@ async def lookup(ctx, *, message):
         response = f"Hmm... not heard of that one!"
         await ctx.send(response)
     elif len(games) == 1:
+        response = f"<@{user.id}> I found this game with the name {game_name}!"
+        await ctx.send(response)
+
         embed = game_embed(games[0], games[0].name,"")
         await ctx.send(embed=embed)
     else:
-        response = f"I found {len(games)} games with the name {game_name}!"
+        response = f"<@{user.id}> I found {len(games)} games with the name {game_name}!"
         await ctx.send(response)
         embed = discord.Embed(title=f"Games matching '{game_name}'")
         
