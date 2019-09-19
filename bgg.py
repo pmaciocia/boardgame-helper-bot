@@ -43,7 +43,7 @@ class BGGCog(commands.Cog, name="BGG"):
             response = "Hmm... not heard of that one!"
             await ctx.send(response)
         elif len(games) == 1:
-            response = f"<@{user.id}> I found this game with the {'id' if game_name.isdigit() else 'name'} {game_name}!"
+            response = f"{user.mention} I found this game with the {'id' if game_name.isdigit() else 'name'} {game_name}!"
             await ctx.send(response)
 
             game = games[0]
@@ -62,7 +62,7 @@ class BGGCog(commands.Cog, name="BGG"):
 
             await ctx.send(embed=embed)
         else:
-            response = f"<@{user.id}> I found {len(games)} games with the name {game_name}!"
+            response = f"{user.mention} I found {len(games)} games with the name {game_name}!"
             await ctx.send(response)
             embed = discord.Embed(title=f"Games matching '{game_name}'")
 
