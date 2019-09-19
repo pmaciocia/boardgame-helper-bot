@@ -120,7 +120,7 @@ class Game():
         self.players = []
 
     def add_player(self, user):
-        if len(self.players) + 1 > self.maxplayers:
+        if len(self.players) + 2 > self.maxplayers:
             raise Exception("Too many players")
 
         if not user in self.players:
