@@ -15,27 +15,6 @@ logger = logging.getLogger("boardgame.helper")
 
 token = "NjIzODc1NDUwMDA2OTI5NDE5.XYI4Zg.JAOi5EtyGT_YufPf2urK915e26Y"
 
-
-# @bot.command(name='add_game', help='Add a game you will be bringing')
-# async def add_game(ctx, *, message):
-#     user = ctx.message.author
-#     game_name = message
-
-#     await ctx.trigger_typing()
-#     games = await fetch_game(game_name)
-#     if len(games) == 0:
-#         response = f"Thanks <@{user.id}>! Adding game {game_name}!"
-#         await ctx.send(response)
-#     else:
-#         game = games[0]
-#         embed = game_embed(game, game.name, f"<@{user.id}> wants to play {game.name}!")
-#         await ctx.send(embed=embed)
-
-# @bot.command(name='games', help='List games that are being played')
-# async def list_games(ctx):
-#     response = f"Adding game"
-#     await ctx.send(response)
-
 def main():
     bot = commands.Bot(command_prefix=commands.when_mentioned_or('!'),)
 
