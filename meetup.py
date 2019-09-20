@@ -12,6 +12,14 @@ class Meetup(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._games = defaultdict(lambda: {})
+
+    @commands.command(name='reset', hidden=True)
+    @commands.is_owner()
+    async def reset(self, ctx):
+        logger.info(f"Resetting...")
+        self._games.clear()
+        await ctx.message.add_reaction('👌')
+
     
     @commands.command(name='add_game', help='Add a game you are bringing')
     async def add_game(self, ctx: commands.Context, *, message):
