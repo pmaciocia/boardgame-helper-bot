@@ -2,6 +2,8 @@ import os
 import discord
 import sqlite3
 
+from environs import Env
+
 from bgg import BGGCog
 from meetup import Meetup
 
@@ -13,7 +15,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("boardgame.helper")
 
-token = "NjIzODc1NDUwMDA2OTI5NDE5.XYI4Zg.JAOi5EtyGT_YufPf2urK915e26Y"
+env = Env()
+env.read_env()
+
+token = env.str("DISCORD_TOKEN")
 
 def main():
     bot = commands.Bot(command_prefix=commands.when_mentioned_or('!'),)
@@ -22,6 +27,7 @@ def main():
         logger.info(f'{bot.user} has connected to Discord!')
 
     bot.add_listener(on_ready)
+    bot.add_check(commands.guild_only())
     bot.add_cog(BGGCog(bot))
     bot.add_cog(Meetup(bot))
     bot.run(token)
