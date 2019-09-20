@@ -98,7 +98,7 @@ class Meetup(commands.Cog):
         for game in [g for gs in list(games) for g in gs.values()]:
             name = f"{game.name}, brought by {game.owner.display_name}"
             if len(game.players) > 0:
-                players = ", ".join(p.display_name for p in game.players)
+                players = players = ", ".join(game.player_names())
                 value = f"{players} are playing ({len(game.players)+1}/{game.maxplayers})"
             else:
                 value = f"No-one has signed up yet! (1/{game.maxplayers})"
@@ -121,7 +121,7 @@ class Meetup(commands.Cog):
         embed = discord.Embed(title=f"Players for {user.display_name}'s games")
         for game in games.values():
             if len(game.players) > 0:
-                players = ", ".join(p.display_name for p in game.players)
+                players = ", ".join(game.player_names())
                 response = f"Players: {players}"
             else:
                 response = f"No-one has signed up yet to play {game.name}"
@@ -158,3 +158,6 @@ class Game():
 
     def remove_player(self, user):
         self.players.remove(user)
+
+    def player_names(self):
+        return [p.display_name for p in self.players]

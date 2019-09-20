@@ -70,4 +70,5 @@ class BGGCog(commands.Cog, name="BGG"):
                 embed.add_field(name=f"{game.name} ({game.year})",
                                 value=BGGCog.game_path(game))
 
+            embed.set_footer(text="Sorted by descending rank")
             await ctx.send(embed=embed)
