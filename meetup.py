@@ -8,6 +8,7 @@ from discord.ext import commands
 
 logger = logging.getLogger("boardgame.helper.games")
 
+
 class Meetup(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -20,7 +21,6 @@ class Meetup(commands.Cog):
         self._games.clear()
         await ctx.message.add_reaction('👌')
 
-    
     @commands.command(name='add_game', help='Add a game you are bringing')
     async def add_game(self, ctx: commands.Context, *, message):
         user = ctx.message.author
@@ -33,18 +33,20 @@ class Meetup(commands.Cog):
             await ctx.trigger_typing()
             bgg_games = await bgg.fetch_game(game_name)
             if len(bgg_games) > 0:
-                bgg_game = sorted(bgg_games, key=lambda g: g.boardgame_rank or sys.maxsize)[0]
+                bgg_game = sorted(
+                    bgg_games, key=lambda g: g.boardgame_rank or sys.maxsize)[0]
 
             game = Game(game_name, user, bgg_game)
 
-            recommend = max((rank.best, rank.player_count) for rank in bgg_game._player_suggestion)[1]
+            recommend = max((rank.best, rank.player_count)
+                            for rank in bgg_game._player_suggestion)[1]
             link = bgg.game_path(bgg_game)
             description = bgg_game.description
             if len(bgg_game.description) > 300:
                 description = description[:297] + "..."
 
-            embed = discord.Embed(title=bgg_game.name, url=link, 
-                description=f"{user.mention} is bringing {bgg_game.name}!")
+            embed = discord.Embed(title=bgg_game.name, url=link,
+                                  description=f"{user.mention} is bringing {bgg_game.name}!")
             embed.add_field(
                 name="Players", value=f"{bgg_game.min_players}-{bgg_game.max_players}", inline=True)
             embed.add_field(name="Best", value=recommend, inline=True)
@@ -77,7 +79,7 @@ class Meetup(commands.Cog):
             response = f"{user.mention}, you are not bringing any games named {game_name}"
             await ctx.send(response)
             return
-        
+
         game = games[game_name]
         players = ", ".join([p.mention for p in game.players])
         response = f"Sorry {players}, but {user.display_name} is not bringing {game.name} anymore!"
@@ -87,8 +89,8 @@ class Meetup(commands.Cog):
 
     @commands.command(name='list_games', help='List games that people are bringing')
     async def list_games(self, ctx):
-        user = ctx.message.author       
-        
+        user = ctx.message.author
+
         games = self._games.values()
         if len(games) == 0:
             await ctx.send(f"{user.mention}, No-one is bringing any games yet!")
@@ -103,9 +105,9 @@ class Meetup(commands.Cog):
             else:
                 value = f"No-one has signed up yet! (1/{game.maxplayers})"
             embed.add_field(name=name, value=value, inline=False)
-        
+
         await ctx.send(embed=embed)
-        
+
     @commands.command(name='list_players', help='List people that want to play your game')
     async def list_players(self, ctx):
         user = ctx.message.author
@@ -115,7 +117,6 @@ class Meetup(commands.Cog):
             response = f"{user.mention}, you are not bringing any games"
             await ctx.send(response)
             return
-        
 
         games = self._games[user]
         embed = discord.Embed(title=f"Players for {user.display_name}'s games")
@@ -130,10 +131,10 @@ class Meetup(commands.Cog):
 
         await ctx.send(embed=embed)
 
-
     @commands.command(name='join_game', help='Join a game that someone is bringing')
     async def join_game(self, ctx, *, message):
         pass
+
 
 class Game():
     def __init__(self, name, user, bgg_game=None):

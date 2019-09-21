@@ -20,6 +20,7 @@ env.read_env()
 
 token = env.str("DISCORD_TOKEN")
 
+
 def main():
     bot = commands.Bot(command_prefix=commands.when_mentioned_or('!'),)
 
@@ -32,5 +33,6 @@ def main():
     bot.add_cog(Meetup(bot))
     bot.run(token)
 
+
 if __name__ == "__main__":
-   main()
+    main()

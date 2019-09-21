@@ -6,6 +6,7 @@ from boardgamegeek import BGGClient
 
 logger = logging.getLogger("boardgame.helper.bgg")
 
+
 class BGGCog(commands.Cog, name="BGG"):
     def __init__(self, bot):
         self.bot = bot
@@ -14,7 +15,7 @@ class BGGCog(commands.Cog, name="BGG"):
     @staticmethod
     def game_path(game):
         return f"https://boardgamegeek.com/boardgame/{game.id}"
-    
+
     async def fetch_game(self, name=None, id=None):
         if id:
             return [self._bgg.game(game_id=id)]
@@ -47,13 +48,14 @@ class BGGCog(commands.Cog, name="BGG"):
             await ctx.send(response)
 
             game = games[0]
-            recommend = max((rank.best, rank.player_count) for rank in game._player_suggestion)[1]
+            recommend = max((rank.best, rank.player_count)
+                            for rank in game._player_suggestion)[1]
             link = BGGCog.game_path(game)
             description = game.description
             if len(game.description) > 300:
                 description = description[:297] + "..."
 
-            embed = discord.Embed(title=game.name, url=link, description=description)
+            embed = discord.Embed(title=game.name, url=link)
             embed.add_field(
                 name="Players", value=f"{game.min_players}-{game.max_players}", inline=True)
             embed.add_field(name="Best", value=recommend, inline=True)
