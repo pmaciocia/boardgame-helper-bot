@@ -9,8 +9,19 @@ from discord.ext import commands
 
 logger = logging.getLogger("boardgame.helper.games")
 
-RED_TEAM = '🔴'
-BLUE_TEAM = '🔵'
+class Team(Enum):
+    RED = '🔴'
+    BLUE = '🔵'
+
+    @property
+    def other(self):
+        if self == Team.RED:
+            return Team.BLUE
+        
+        if self == Team.BLUE:
+            return Team.RED
+    
+CAPT = '👑'
 
 class Codenames(commands.Cog):
     def __init__(self, bot):
@@ -30,9 +41,13 @@ class Codenames(commands.Cog):
         user = ctx.message.author
         logger.info(f"Starting game for user {user.id}")
 
-        
         response = f"{user.mention} is starting a new game!"
         message = await ctx.send(response)
+
+        for team in Team:
+            await message.add_reaction(team.value)
+
+        await message.add_reaction(CAPT)
 
         self.game = Game(message)
 
@@ -58,35 +73,72 @@ class Codenames(commands.Cog):
             response = f"{captain} - {', '.join(player.name for player in team)}"
             await ctx.send(response)
 
+
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction, user):
         logger.info(f"User {user.id} reacted with {reaction.emoji} for message {reaction.message.id}")
 
-        game = self.game 
-        if game is None:
+        message = reaction.message
+
+        if user.bot:
+            logger.info(f"User {user.id} is a bot - ignoring")
             return
 
+        game = self.game 
+        if game is None:
+            logger.info(f"No game in progress - ignoring")
+            return
+
+        if reaction.emoji not in set(t.value for t in Team) and reaction.emoji != CAPT:
+            logger.info(f"Unknown reaction {reaction.emoji} - removing")
+            await message.clear_reaction(reaction.emoji)
+
         logger.info(f"Game message is {game.message.id}")
-   
-        if reaction.message.id == game.message.id:
-            logger.info(f"Reaction matches game!")
-            
-            if reaction.emoji in Team:
+        if message.id == game.message.id:
+            logger.info(f"Reactions are {message.reactions} ")
+            teams = { 
+                user: r
+                for r in message.reactions
+                for user in await r.users().flatten()
+                if reaction.emoji != r.emoji and
+                    r.emoji in [Team.RED.value, Team.BLUE.value] 
+                    and not user.bot
+            }
+
+            logger.info(teams)
+
+            prefix = "{reaction.emoji} - "
+
+            if reaction.emoji in set(t.value for t in Team):
                 team = Team(reaction.emoji)
-                game.add_player(user, team)
-                logger.info(f"Adding {user.id} to {team} team")
-                await user.edit(nick=f"{reaction.emoji} - {user.nick}")
+                other = team.other
 
-            elif reaction.emoji == RED_CAPT:
-                game.add_captain(user, Team.RED)
-                logger.info(f"Adding {user.id} as red team captain")
-                await user.edit(nick=f"{RED_TEAM}{RED_CAPT} - {user.nick}")
+                if user in teams:
+                    logger.info(f"Removing {user.id} from {other.name} team")
+                    await teams[user].remove(user)
+                    del teams[user]
 
+                #game.add_player(user, team)
+                logger.info(f"Adding {user.id} to {team.name} team")
+                
+                if user.nick is None or not user.nick.starts_with(prefix):
+                    await user.edit(nick=f"{prefix}{user.nick or user.name}")
 
-class Team(Enum):
-    RED = '🔴'
-    BLUE = '🔵'
+            elif reaction.emoji == CAPT:
+                if user in teams:
+                    if user.nick is None or not user.nick.starts_with(prefix):
+                        await user.edit(nick=f"{prefix}{user.nick or user.name}")
+                    
 
+    @commands.Cog.listener()
+    async def on_reaction_remove(self, reaction, user):
+        logger.info(f"User {user.id} removed reaction {reaction.emoji} for message {reaction.message.id}")
+
+        prefix = "{reaction.emoji} - "
+
+        if user.nick != None and user.nick.starts_with(prefix):
+            await user.edit(nick=user.nick[len(prefix):])
+        
 
 class Game():
 
