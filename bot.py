@@ -9,6 +9,7 @@ from meetup import Meetup
 
 from discord.ext import commands
 from boardgamegeek import BGGClient
+from codenames import Codenames
 
 import logging
 
@@ -31,6 +32,7 @@ def main():
     bot.add_check(commands.guild_only())
     bot.add_cog(BGGCog(bot))
     bot.add_cog(Meetup(bot))
+    bot.add_cog(Codenames(bot))
     bot.run(token)
 
 
