@@ -23,15 +23,15 @@ class Team(Enum):
     
     @classmethod
     def values(cls):
-        return set(t.value for t in cls)
+        return set(t.value for t in Team)
 
 CAPT = '👑'
 
 class Codenames(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.self = None
-        self.players = []
+        self.game = None
+        self.players = {}
 
     @commands.command(name='_reset', hidden=True)
     @commands.is_owner()
@@ -64,20 +64,6 @@ class Codenames(commands.Cog):
         response = "Game over!"
         await ctx.send(response)
 
-    @commands.command(name='_list_players', help='List games that people are bringing')
-    async def list_players(self, ctx: commands.Context):
-        user = ctx.message.author
-
-        if self.game is None:
-            await ctx.send(f"{user.mention}, there is no game in progress!")
-            return
-
-        players = self.game.list_players()
-
-        for captain, team in players:
-            response = f"{captain} - {', '.join(player.name for player in team)}"
-            await ctx.send(response)
-
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction, user):
@@ -98,15 +84,15 @@ class Codenames(commands.Cog):
             logger.info(f"Unknown reaction {reaction.emoji} - removing")
             return
 
-        logger.info(f"Game message is {self.game_message.id}")
-        if message == self.game_message:
+        logger.info(f"Game message is {self.game.id}")
+        if message.id == self.game.id:
             logger.info(f"Reactions are {message.reactions} ")
 
             player = Player(user)
             if player not in self.players:
-                self.players.add(player)
+                self.players[user] = player
             
-            player.assign_from_reaction(reaction)
+            await player.assign_from_reaction(reaction)
             
                     
 
@@ -131,26 +117,32 @@ class Player:
             await user.edit(nick=user.nick[len(self.prefix):])
             self.prefix = None
 
-    async def set_nick(self):
-        if prefix:
-            await user.edit(nick=f"{prefix}{user.nick or user.name}")
+
+    async def update_nick(self):
+        if self.prefix:
+            logger.info(f"Remove old prefix {self.prefix}")
+            await self.remove_nick()
+
+        self.prefix = f"{CAPT if self.is_captain else ''}{self.team.value} - "
+        await self.user.edit(nick=f"{self.prefix}{self.user.nick or self.user.name}")
 
     async def assign_from_reaction(self, reaction: discord.Reaction):
         emoji = reaction.emoji
-        if emoji not in Team.values() or emoji != CAPT:
+        if emoji not in Team.values() and emoji != CAPT:
+            logger.info(f"Invalid emoji {emoji}")
             return
     
         message = reaction.message
         if self.team is None:
+            logger.info(f"No team assigned for {self.user.id}")
             if emoji in Team.values():
                 self.team = Team(emoji)
-                self.prefix = f"{self.team.value} -"
+                await self.update_nick()
 
         else:
             if emoji == CAPT:
                 self.is_captain = True
-                self.remove_nick()
-                self.prefix = self.prefix = f"{CAPT}{self.team.value} -"
+                await self.update_nick()
                 
             else:
                 # Can't react with same emoji twice
@@ -158,10 +150,5 @@ class Player:
 
                 self.is_captain = False
                 self.team = r_team
-                
-                self.remove_nick()
-                self.prefix = f"{self.team.value} -"
-
-            self.set_nick()
-
+                await self.update_nick()
 
