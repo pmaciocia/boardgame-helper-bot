@@ -28,7 +28,6 @@ class Team(Enum):
             return Team.RED
     
     @classmethod
-
     def values(cls):
         return set(t.value for t in Team)
 
@@ -48,26 +47,26 @@ class Player:
                 self.previous = None
                 return 
 
-            logger.info(f"Resetting user {self.user.id} nick to {nick}")
-            try:
-                await self.user.edit(nick=nick)
-            except:
-                logger.error(f"Failed to remove nick for user {self.user.id}")
+            await Player._set_nick(self.user, nick)
             self.previous = None
 
     async def update_nick(self):
-        if self.previous:
-            await self.remove_nick()
+        if not self.previous:
+            self.previous = self.user.nick or self.user.name
 
         prefix = f"{CAPT if self.is_captain else ''} {self.team.value} - "
-        self.previous = self.user.nick or self.user.name
-        nick = f"{prefix}{self.user.nick or self.user.name}"
+        nick = f"{prefix}{self.previous}"
 
-        logger.info(f"Setting user {self.user.id} nick to {nick}")
+        await Player._set_nick(self.user, nick)
+
+    @staticmethod
+    async def _set_nickname(user, nick):
+        logger.info(f"Setting user {user.id} nick to {nick}")
         try:
-            await self.user.edit(nick=nick)
+            await user.edit(nick=nick)
         except:
-            logger.error(f"Failed to set nick for user {self.user.id}")
+            logger.error(f"Failed to set nick for user {user.id}")
+
 
     async def assign_from_reaction(self, reaction: discord.Reaction):
         emoji = reaction.emoji
