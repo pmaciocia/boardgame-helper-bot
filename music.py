@@ -18,7 +18,10 @@ class Music(commands.Cog):
         self.music_queue = []
         self.skip_votes = set()
 
-        self.YDL_OPTIONS = {"format": "bestaudio", "noplaylist": "True"}
+        self.YDL_OPTIONS = {
+            "format": "bestaudio",
+            "noplaylist": "True"
+        }
         self.FFMPEG_OPTIONS = {
             "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
             "options": "-vn",
@@ -27,13 +30,12 @@ class Music(commands.Cog):
         self.vc = None
 
     @commands.Cog.listener()
-    async def on_voice_state_update(self, member, before, after):
+    async def on_voice_state_update(self, member: discord.Member, before, after):
 
         if not member.id == self.bot.user.id:
             return
 
         elif before.channel is None:
-            voice = self.vc
             time = 0
             while True:
                 await asyncio.sleep(1)
@@ -55,7 +57,7 @@ class Music(commands.Cog):
                     "entries"
                 ][0]
             except Exception:
-                return False
+                return None
 
         return {"source": info["formats"][0]["url"], "title": info["title"]}
 
@@ -79,15 +81,16 @@ class Music(commands.Cog):
         if len(self.music_queue) > 0:
             self.is_playing = True
 
-            m_url = self.music_queue[0][0]["source"]
+            (song, channel, author) = self.music_queue[0]
+            m_url = song["source"]
 
             if self.vc == None or not self.vc.is_connected():
-                self.vc = await self.music_queue[0][1].connect()
+                self.vc = await channel.connect()
             else:
-                await self.vc.move_to(self.music_queue[0][1])
+                await self.vc.move_to(channel)
 
             await ctx.send(
-                f""":arrow_forward: Playing **{self.music_queue[0][0]['title']}** -- requested by {self.music_queue[0][2]}"""
+                f":arrow_forward: Playing **{song['title']}** -- requested by {author}"
             )
 
             self.vc.play(
@@ -113,7 +116,7 @@ class Music(commands.Cog):
             await ctx.send("Connect to a voice channel!")
         else:
             song = self.search_yt(query)
-            if type(song) == type(True):
+            if not song:
                 await ctx.send(
                     "Could not download the song. Incorrect format try another keyword."
                 )
@@ -133,7 +136,8 @@ class Music(commands.Cog):
         aliases=["playing"],
     )
     async def cp(self, ctx):
-        msg = "No music playing" if self.current_song is None else f"""Currently Playing: **{self.current_song[0]['title']}** -- added by {self.current_song[2]}\n"""
+        msg = "No music playing" if self.current_song is None else \
+            f"Currently Playing: **{self.current_song[0]['title']}** -- added by {self.current_song[2]}\n"
         await ctx.send(msg)
 
     @commands.command(
@@ -145,7 +149,7 @@ class Music(commands.Cog):
         print(self.music_queue)
         retval = ""
         for (i, m) in enumerate(self.music_queue):
-            retval += f"""{i+1}. **{m[0]['title']}** -- added by {m[int(2)]}\n"""
+            retval += f"{i+1}. **{m[0]['title']}** -- added by {m[2]}\n"
 
         if retval != "":
             await ctx.send(retval)
@@ -155,19 +159,19 @@ class Music(commands.Cog):
     @commands.command(name="cq", help="Clears the queue", aliases=["clear"])
     async def cq(self, ctx):
         self.music_queue = []
-        await ctx.send("""***Queue cleared !***""")
+        await ctx.send("***Queue cleared !***")
 
     @commands.command(name="shuffle", help="Shuffles the queue")
     async def shuffle(self, ctx):
         shuffle(self.music_queue)
-        await ctx.send("""***Queue shuffled !***""")
+        await ctx.send("***Queue shuffled !***")
 
     @commands.command(
         name="s", help="Skips the current song being played", aliases=["skip"]
     )
     async def skip(self, ctx):
         if self.vc != "" and self.vc:
-            await ctx.send("""***Skipped current song !***""")
+            await ctx.send("***Skipped current song !***")
             self.skip_votes = set()
             self.vc.stop()
             await self.play_music(ctx)
@@ -195,7 +199,7 @@ class Music(commands.Cog):
     @commands.has_any_role(*voice_channel_moderator_roles)
     async def leave(self, ctx, *args):
         if self.vc.is_connected():
-            await ctx.send("""**Bye Bye **:slight_smile:""")
+            await ctx.send("**Bye Bye **:slight_smile:")
             await self.vc.disconnect(force=True)
 
     @commands.command(
@@ -243,8 +247,8 @@ class Music(commands.Cog):
                         f":headphones: **{song['title']}** will be played add the end of the queue!"
                     )
 
-                if self.is_playing == False or (
-                    self.vc == "" or not self.vc.is_connected() or self.vc == None
+                if not self.is_playing or (
+                    self.vc == None or not self.vc.is_connected() 
                 ):
                     await self.play_music(ctx)
 
@@ -286,23 +290,18 @@ class Music(commands.Cog):
     @commands.has_any_role(*voice_channel_moderator_roles)
     async def remove(self, ctx, *args):
         query = "".join(*args)
-        index = 0
-        negative = True if (query[0] == "-") else False
-        if not negative:
-            for i in range(len(query)):
-                convert = (int)(query[i])
-                index = index * 10 + convert
-        index -= 1
+        try:
+            index = int(query)
+            if 0 < index >= len(self.music_queue):
+                raise
+        except:
+            await ctx.send("Invalid index")
+            return
 
-        if negative:
-            await ctx.send("Index cannot be less than one")
-        elif index >= len(self.music_queue):
-            await ctx.send("Wrong index. Indexed music not present in the queue")
-        else:
-            await ctx.send(
-                f""":x: Music at index {query} removed by {ctx.author.mention}"""
-            )
-            self.music_queue.pop(index)
+        await ctx.send(
+            f":x: Music at index {query} removed by {ctx.author.mention}"
+        )
+        self.music_queue.pop(index)
 
 
     @commands.command(
@@ -312,37 +311,39 @@ class Music(commands.Cog):
     )
     @commands.has_any_role(*voice_channel_moderator_roles)
     async def restart(self, ctx):
-        song=[]
-        if(self.current_song != None):
-            song= self.current_song[0]
-            voice_channel = ctx.author.voice.channel
-            self.music_queue.insert(
-                0,
-                [song, voice_channel, ctx.author.mention]
-            )
-            self.vc.stop()
-            if len(self.music_queue) > 0:
-                self.is_playing = True
-
-                m_url = self.music_queue[0][0]["source"]
-
-                if self.vc == "" or not self.vc.is_connected() or self.vc == None:
-                    self.vc = await self.music_queue[0][1].connect()
-                    await ctx.send("No music added")
-                else:
-                    await self.vc.move_to(self.music_queue[0][1])
-
-                    await ctx.send(
-                        f""":repeat: Replaying **{self.music_queue[0][0]['title']}** -- requested by {self.music_queue[0][2]}"""
-                    )
-
-                    self.vc.play(
-                        discord.FFmpegPCMAudio(m_url, **self.FFMPEG_OPTIONS),
-                        after=lambda e: self.play_next(),
-                    )
-                    self.current_song = self.music_queue.pop(0)
-
-        else:
+        
+        if not self.current_song:
             self.is_playing = False
             self.current_song = None
             await ctx.send(f""":x: No music playing""")
+            return
+
+        song = self.current_song[0]
+        voice_channel = ctx.author.voice.channel
+        self.music_queue.insert(
+            0,
+            [song, voice_channel, ctx.author.mention]
+        )
+        self.vc.stop()
+        if len(self.music_queue) > 0:
+            self.is_playing = True
+
+            (song, channel, author) = self.music_queue[0]
+            m_url = song["source"]
+
+            if self.vc == None or not self.vc.is_connected():
+                self.vc = await channel.connect()
+                await ctx.send("No music added")
+            else:
+                await self.vc.move_to(channel)
+
+                await ctx.send(
+                    f":repeat: Replaying **{song['title']}** -- requested by {author}"
+                )
+
+                self.vc.play(
+                    discord.FFmpegPCMAudio(m_url, **self.FFMPEG_OPTIONS),
+                    after=lambda e: self.play_next(),
+                )
+                self.current_song = self.music_queue.pop(0)
+

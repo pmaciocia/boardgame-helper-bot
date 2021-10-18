@@ -16,7 +16,7 @@ class BGGCog(commands.Cog, name="BGG"):
     def game_path(game):
         return f"https://boardgamegeek.com/boardgame/{game.id}"
 
-    async def fetch_game(self, name=None, id=None):
+    async def fetch_game(self, name: str=None, id: int=None):
         if id:
             return [self._bgg.game(game_id=id)]
         if name:
@@ -24,7 +24,7 @@ class BGGCog(commands.Cog, name="BGG"):
         return []
 
     @commands.command(name='bg', help='Lookup a board game')
-    async def lookup(self, ctx: commands.Context, *, message):
+    async def lookup(self, ctx: commands.Context, *, message: str):
         if len(message) == 0:
             return
 
