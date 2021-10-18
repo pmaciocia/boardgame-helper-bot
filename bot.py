@@ -13,6 +13,8 @@ from codenames import Codenames
 
 import logging
 
+from music import Music
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("boardgame.helper")
 
@@ -31,8 +33,9 @@ def main():
     bot.add_listener(on_ready)
     bot.add_check(commands.guild_only())
     bot.add_cog(BGGCog(bot))
-    bot.add_cog(Meetup(bot))
-    bot.add_cog(Codenames(bot))
+    #bot.add_cog(Meetup(bot))
+    #bot.add_cog(Codenames(bot))
+    bot.add_cog(Music(bot))
     bot.run(token)
 
 
