@@ -105,7 +105,7 @@ class Music(commands.Cog):
     async def skip(self, ctx):
         logger.info(f"skip command - author:{ctx.author}")
         
-        if self.is_playing and len(self.music_queue) > 0 and ctx.voice_client:
+        if self.is_playing and ctx.voice_client:
             await ctx.send("***Skipped current song !***")
             ctx.voice_client.stop()
             await self.play_music(ctx)
@@ -166,6 +166,7 @@ class Music(commands.Cog):
     def play_next(self, ctx):        
         if len(self.music_queue) == 0:
             self.is_playing = False
+            ctx.voice_client.stop()
         else:
             (player, author) = self.music_queue.pop(0)
             ctx.voice_client.play(player, after=lambda e: self.play_next(ctx))
