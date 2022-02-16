@@ -172,6 +172,7 @@ class Music(commands.Cog):
                     logger.info(f"adding song {player.title}")
                     
                     text += f":musical_note: Added **{player.title}** to the queue\n"
+                    self.music_queue.append((player,ctx.author.mention))
                     if not self.is_playing:
                         await self.play_music(ctx)
                 
@@ -189,7 +190,7 @@ class Music(commands.Cog):
 
 
     async def play_music(self, ctx):
-        if self.music_queue.empty():
+        if len(self.music_queue) == 0:
             await ctx.send(f":confused: No songs in the queue")
             self.reset()
         else:
