@@ -65,7 +65,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
         songs = []
         if "entries" in data:
             logger.info("Found playlist with {0} entries".format(len( data["entries"] )))
-            # Takes the first item from a playlist
             songs = [cls(discord.FFmpegPCMAudio(e["url"], **ffmpeg_options), data=e) for e in data["entries"]]
         else:
             songs.append(cls(discord.FFmpegPCMAudio(data["url"], **ffmpeg_options), data=data))
@@ -131,8 +130,11 @@ class Music(commands.Cog):
 
         if len(self.music_queue) > 0:
             embed = discord.Embed(title=f"Song queue")
+            text = ""
             for (n, (player,_))  in enumerate(self.music_queue):
-                embed.add_field(value=f"{player.title}", inline=False)
+                text += f"{n+1}. **{player.title}**\n"
+            
+            embed.description = text
             await ctx.send(embed=embed)
         else: 
             await ctx.send(f":shrug: Queue is empty")
@@ -150,18 +152,19 @@ class Music(commands.Cog):
     async def queue_song(self, ctx, song):                
         async with ctx.typing():
             players = await YTDLSource.from_url(song, loop=self.bot.loop)
-            if players is None: 
+            if players is None or len(players) == 0: 
                 await ctx.send(f":shrug: Couldn't find **{song}** -- requested by {ctx.author.mention}")
             else:
+                text = ""
                 for player in players:
                     logger.info(f"adding song {player.title}")
+                    
+                    text += f":musical_note: Added **{player.title}** to the queue\n"
                     self.music_queue.append((player,ctx.author.mention))
                     if not self.is_playing:
                         await self.play_music(ctx)
-                    
-                    
-                    await ctx.send(f":musical_note: Added **{player.title}** to the queue")
-        
+
+                await ctx.send(embed=discord.Embed(description=text))                                    
         
     def play_next(self, ctx):        
         if len(self.music_queue) == 0:
@@ -170,7 +173,7 @@ class Music(commands.Cog):
         else:
             (player, author) = self.music_queue.pop(0)
             ctx.voice_client.play(player, after=lambda e: self.play_next(ctx))
-            ctx.send(f":arrow_forward: Playing **{player.title}** -- requested by {author}")
+            ctx.send(embed=discord.Embed(description=f":arrow_forward: Playing **{player.title}** -- requested by {author}"))
 
 
     async def play_music(self, ctx):
@@ -180,7 +183,7 @@ class Music(commands.Cog):
             self.is_playing = True
             (player, author) = self.music_queue.pop(0)
             ctx.voice_client.play(player, after=lambda e: self.play_next(ctx))
-            await ctx.send(f":arrow_forward: Playing **{player.title}** -- requested by {author}")
+            await ctx.send(embed=discord.Embed(description=f":arrow_forward: Playing **{player.title}** -- requested by {author}"))
 
 
     @play.before_invoke
