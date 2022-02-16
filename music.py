@@ -1,4 +1,5 @@
 import asyncio
+from importlib.abc import SourceLoader
 import logging
 from re import S
 import discord
@@ -16,7 +17,7 @@ logger = logging.getLogger("boardgame.helper.music")
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ""
 
-voice_channel_moderator_roles = ["DJ", "Moderator"]
+voice_channel_moderator_roles = ["DJ", "Moderator", "Mod"]
 guild_ids = [
     623882469510217734
 ]
@@ -93,7 +94,7 @@ class Music(commands.Cog):
 
     @commands.command()
     @commands.has_any_role(*voice_channel_moderator_roles)
-    async def play(self, ctx, song):
+    async def play(self, ctx, *, song):
         logger.info(f"play command - song:'{song}' author:'{ctx.author}'")
         
         """Streams from a url (same as yt, but doesn't predownload)"""
@@ -112,6 +113,22 @@ class Music(commands.Cog):
             ctx.voice_client.stop()
             await self.play_music(ctx)
             
+
+    @commands.command()
+    async def queue(self, ctx):
+        logger.info(f"queue command - author:'{ctx.author}'")
+
+        if len(self.music_queue) > 0:
+            embed = discord.Embed(title=f"Song queue")
+            text = ""
+            for (n, (player,_))  in enumerate(self.music_queue):
+                text += f"{n+1}. **{player.title}**\n"
+            
+            embed.description = text
+            await ctx.send(embed=embed)
+        else: 
+            await ctx.send(f":shrug: Queue is empty")
+
 
     @commands.command()
     @commands.has_any_role(*voice_channel_moderator_roles)
@@ -158,7 +175,10 @@ class Music(commands.Cog):
         """Stops and disconnects the bot from voice"""
         logger.info(f"solo command - author:'{ctx.author}'")
 
-        await self.play(ctx, solo)
+        await self.queue_song(ctx, solo)
+        
+        if len(self.music_queue) > 0 and not self.is_playing:
+            await self.play_music(ctx)
     
     async def queue_song(self, ctx, song):                
         async with ctx.typing():
@@ -206,8 +226,10 @@ class Music(commands.Cog):
     @play.before_invoke
     @solo.before_invoke
     async def ensure_voice(self, ctx):
+        logger.info("ensuring voice connection")
         if ctx.voice_client is None:
             if ctx.author.voice:
+                logger.info(f"connecting to {ctx.author.voice.channel.name}")
                 await ctx.author.voice.channel.connect()
             else:
                 await ctx.send("You are not connected to a voice channel.")
