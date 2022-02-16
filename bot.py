@@ -1,14 +1,9 @@
-import os
-import discord
-import sqlite3
-
 from environs import Env
 
 from bgg import BGGCog
 from meetup import Meetup
 
 from discord.ext import commands
-from boardgamegeek import BGGClient
 from codenames import Codenames
 
 import logging
@@ -24,6 +19,7 @@ env.read_env()
 token = env.str("DISCORD_TOKEN")
 
 
+
 def main():
     bot = commands.Bot(command_prefix=commands.when_mentioned_or('!'),)
 
@@ -32,12 +28,9 @@ def main():
 
     bot.add_listener(on_ready)
     bot.add_check(commands.guild_only())
-    bot.add_cog(BGGCog(bot))
-    #bot.add_cog(Meetup(bot))
-    #bot.add_cog(Codenames(bot))
+    # bot.add_cog(BGGCog(bot))
     bot.add_cog(Music(bot))
     bot.run(token)
-
 
 if __name__ == "__main__":
     main()

@@ -1,349 +1,200 @@
 import asyncio
+import logging
+from re import S
 import discord
 from discord.ext import commands
 from discord.ext.commands.core import command
 
 from random import shuffle
+
+import youtube_dl
 from youtube_dl import YoutubeDL
 
+logger = logging.getLogger("boardgame.helper.music")
+
+
+# Suppress noise about console usage from errors
+youtube_dl.utils.bug_reports_message = lambda: ""
+
 voice_channel_moderator_roles = ["DJ", "Moderator"]
+guild_ids = [
+    623882469510217734
+]
+
+ytdl_format_options = {
+    "format": "bestaudio/best",
+    "outtmpl": "%(extractor)s-%(id)s-%(title)s.%(ext)s",
+    "restrictfilenames": True,
+    "noplaylist": True,
+    "nocheckcertificate": True,
+    "ignoreerrors": False,
+    "logtostderr": False,
+    "quiet": True,
+    "no_warnings": True,
+    "default_search": "auto",
+    # Bind to ipv4 since ipv6 addresses cause issues at certain times
+    "source_address": "0.0.0.0",
+}
+
+ffmpeg_options = {
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    "options": "-vn",
+}
+
+ytdl = YoutubeDL(ytdl_format_options)
+
+
+class YTDLSource(discord.PCMVolumeTransformer):
+    def __init__(self, source, *, data, volume=0.5):
+        super().__init__(source, volume)
+        self.data = data
+
+        self.title = data.get("title")
+        self.url = data.get("url")
+
+    @classmethod
+    async def from_url(cls, url, *, loop=None):
+        logger.info(f"Searching for {url}")
+        loop = loop or asyncio.get_event_loop()
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+        
+        if data is None: 
+            logger.info("No song found")
+            return None
+
+        songs = []
+        if "entries" in data:
+            logger.info("Found playlist with {0} entries".format(len( data["entries"] )))
+            # Takes the first item from a playlist
+            songs = [cls(discord.FFmpegPCMAudio(e["url"], **ffmpeg_options), data=e) for e in data["entries"]]
+        else:
+            songs.append(cls(discord.FFmpegPCMAudio(data["url"], **ffmpeg_options), data=data))
+                
+        return songs
 
 
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
+        self.player = None
         self.is_playing = False
-        self.current_song = None
         self.music_queue = []
-        self.skip_votes = set()
 
-        self.YDL_OPTIONS = {
-            "format": "bestaudio",
-            "noplaylist": "True"
-        }
-        self.FFMPEG_OPTIONS = {
-            "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-            "options": "-vn",
-        }
+    @commands.command()
+    async def summon(self, ctx, *, channel: discord.VoiceChannel):
+        """Joins a voice channel"""
+        logger.info(f"Summoned to {channel.guild}/{channel.name} by {ctx.author}")
 
-        self.vc = None
+        if ctx.voice_client is not None:
+            return await ctx.voice_client.move_to(channel)
+        
+        await channel.connect()
 
-    @commands.Cog.listener()
-    async def on_voice_state_update(self, member: discord.Member, before, after):
+    @commands.command()
+    async def play(self, ctx, *, song):
+        logger.info(f"play command - song:'{song}' author:'{ctx.author}'")
+        
+        """Streams from a url (same as yt, but doesn't predownload)"""
+        await self.queue_song(ctx, song)
+        
+        if len(self.music_queue) > 0 and not self.is_playing:
+            await self.play_music(ctx)
+            
+    
+    @commands.command()
+    async def skip(self, ctx):
+        logger.info(f"skip command - author:{ctx.author}")
+        
+        if self.is_playing and len(self.music_queue) > 0 and ctx.voice_client:
+            await ctx.send("***Skipped current song !***")
+            ctx.voice_client.stop()
+            await self.play_music(ctx)
+            
 
-        if not member.id == self.bot.user.id:
-            return
+    @commands.command()
+    async def volume(self, ctx, volume: int):
+        """Changes the player's volume"""
+        logger.info(f"volume command - volume:'{volume}' author:'{ctx.author}'")
 
-        elif before.channel is None:
-            time = 0
-            while True:
-                await asyncio.sleep(1)
-                voice = self.vc
-                time = time + 1
-                if voice is None:
-                    continue
-                if voice.is_playing:
-                    time = 0
-                if time == 20:
-                    await voice.disconnect()
-                if not voice.is_connected():
-                    break
+        if ctx.voice_client is None:
+            return await ctx.send("Not connected to a voice channel.")
 
-    def search_yt(self, item):
-        with YoutubeDL(self.YDL_OPTIONS) as ydl:
-            try:
-                info = ydl.extract_info("ytsearch:%s" % item, download=False)[
-                    "entries"
-                ][0]
-            except Exception:
-                return None
+        volume = max(0, min(volume, 100))
+       
+        ctx.voice_client.source.volume = volume / 100
+        await ctx.send(f"Changed volume to {volume}%")
 
-        return {"source": info["formats"][0]["url"], "title": info["title"]}
+    @commands.command()
+    async def queue(self, ctx):
+        """Stops and disconnects the bot from voice"""
+        logger.info(f"queue command - author:'{ctx.author}'")
 
-    def play_next(self):
         if len(self.music_queue) > 0:
-            self.is_playing = True
+            embed = discord.Embed(title=f"Song queue")
+            for (n, (player,_))  in enumerate(self.music_queue):
+                embed.add_field(value=f"{player.title}", inline=False)
+            await ctx.send(embed=embed)
+        else: 
+            await ctx.send(f":shrug: Queue is empty")
 
-            m_url = self.music_queue[0][0]["source"]
+    @commands.command()
+    async def stop(self, ctx):
+        """Stops and disconnects the bot from voice"""
+        logger.info(f"stop command - author:'{ctx.author}'")
 
-            self.current_song = self.music_queue.pop(0)
-
-            self.vc.play(
-                discord.FFmpegPCMAudio(m_url, **self.FFMPEG_OPTIONS),
-                after=lambda e: self.play_next(),
-            )
-        else:
+        if ctx.voice_client is not None:
+            await ctx.voice_client.disconnect()
+            
+        self.reset()
+        
+    async def queue_song(self, ctx, song):                
+        async with ctx.typing():
+            players = await YTDLSource.from_url(song, loop=self.bot.loop)
+            if players is None: 
+                await ctx.send(f":shrug: Couldn't find **{song}** -- requested by {ctx.author.mention}")
+            else:
+                for player in players:
+                    logger.info(f"adding song {player.title}")
+                    self.music_queue.append((player,ctx.author.mention))
+                    if not self.is_playing:
+                        await self.play_music(ctx)
+                    
+                    
+                    await ctx.send(f":musical_note: Added **{player.title}** to the queue")
+        
+        
+    def play_next(self, ctx):        
+        if len(self.music_queue) == 0:
             self.is_playing = False
-            self.current_song = None
+        else:
+            (player, author) = self.music_queue.pop(0)
+            ctx.voice_client.play(player, after=lambda e: self.play_next(ctx))
+            ctx.send(f":arrow_forward: Playing **{player.title}** -- requested by {author}")
+
 
     async def play_music(self, ctx):
-        if len(self.music_queue) > 0:
+        if len(self.music_queue) == 0:
+            await ctx.send(f":confused: No songs in the queue")
+        else:
             self.is_playing = True
+            (player, author) = self.music_queue.pop(0)
+            ctx.voice_client.play(player, after=lambda e: self.play_next(ctx))
+            await ctx.send(f":arrow_forward: Playing **{player.title}** -- requested by {author}")
 
-            (song, channel, author) = self.music_queue[0]
-            m_url = song["source"]
 
-            if self.vc == None or not self.vc.is_connected():
-                self.vc = await channel.connect()
-            else:
-                await self.vc.move_to(channel)
-
-            await ctx.send(
-                f":arrow_forward: Playing **{song['title']}** -- requested by {author}"
-            )
-
-            self.vc.play(
-                discord.FFmpegPCMAudio(m_url, **self.FFMPEG_OPTIONS),
-                after=lambda e: self.play_next(),
-            )
-            self.current_song = self.music_queue.pop(0)
-
-        else:
-            self.is_playing = False
-            self.current_song = None
-
-    @commands.command(
-        name="p",
-        help="Plays a selected song from youtube \U0001F3B5",
-        aliases=["play"],
-    )
-    async def p(self, ctx, *args):
-        query = " ".join(args)
-
-        voice_channel = ctx.author.voice.channel
-        if voice_channel is None:
-            await ctx.send("Connect to a voice channel!")
-        else:
-            song = self.search_yt(query)
-            if not song:
-                await ctx.send(
-                    "Could not download the song. Incorrect format try another keyword."
-                )
-            else:
-                await ctx.send(
-                    f""":headphones: **{song["title"]}** has been added to the queue by {ctx.author.mention}"""
-                )
-                self.music_queue.append(
-                    [song, voice_channel, ctx.author.mention])
-
-                if self.is_playing == False:
-                    await self.play_music(ctx)
-
-    @commands.command(
-        name="cp",
-        help="Shows the currently playing song \U0001F440",
-        aliases=["playing"],
-    )
-    async def cp(self, ctx):
-        msg = "No music playing" if self.current_song is None else \
-            f"Currently Playing: **{self.current_song[0]['title']}** -- added by {self.current_song[2]}\n"
-        await ctx.send(msg)
-
-    @commands.command(
-        name="q",
-        help="Shows the music added in list/queue \U0001F440",
-        aliases=["queue"],
-    )
-    async def q(self, ctx):
-        print(self.music_queue)
-        retval = ""
-        for (i, m) in enumerate(self.music_queue):
-            retval += f"{i+1}. **{m[0]['title']}** -- added by {m[2]}\n"
-
-        if retval != "":
-            await ctx.send(retval)
-        else:
-            await ctx.send("No music in queue")
-
-    @commands.command(name="cq", help="Clears the queue", aliases=["clear"])
-    async def cq(self, ctx):
-        self.music_queue = []
-        await ctx.send("***Queue cleared !***")
-
-    @commands.command(name="shuffle", help="Shuffles the queue")
-    async def shuffle(self, ctx):
-        shuffle(self.music_queue)
-        await ctx.send("***Queue shuffled !***")
-
-    @commands.command(
-        name="s", help="Skips the current song being played", aliases=["skip"]
-    )
-    async def skip(self, ctx):
-        if self.vc != "" and self.vc:
-            await ctx.send("***Skipped current song !***")
-            self.skip_votes = set()
-            self.vc.stop()
-            await self.play_music(ctx)
-
-    @commands.command(
-        name="voteskip",
-        help="Vote to skip the current song being played",
-        aliases=["vs"],
-    )
-    async def voteskip(self, ctx):
+    @play.before_invoke
+    async def ensure_voice(self, ctx):
         if ctx.voice_client is None:
-            return
-        num_members = len(ctx.voice_client.channel.members) - 1
-        self.skip_votes.add(ctx.author.id)
-        votes = len(self.skip_votes)
-        if votes >= num_members / 2:
-            await ctx.send(f"Vote passed by majority ({votes}/{num_members}).")
-            await self.skip(ctx)
-
-    @commands.command(
-        name="l",
-        help="Commands the bot to leave the voice channel \U0001F634",
-        aliases=["leave"],
-    )
-    @commands.has_any_role(*voice_channel_moderator_roles)
-    async def leave(self, ctx, *args):
-        if self.vc.is_connected():
-            await ctx.send("**Bye Bye **:slight_smile:")
-            await self.vc.disconnect(force=True)
-
-    @commands.command(
-        name="pn", help="Moves the song to the top of the queue \U0001F4A5"
-    )
-    @commands.has_any_role(*voice_channel_moderator_roles)
-    async def playnext(self, ctx, *args):
-        query = " ".join(args)
-
-        voice_channel = ctx.author.voice.channel
-        if voice_channel is None:
-            await ctx.send("Connect to a voice channel")
-        else:
-            song = self.search_yt(query)
-            if type(song) == type(True):
-                await ctx.send(
-                    "Could not download the song. Incorrect format try another keyword."
-                )
+            if ctx.author.voice:
+                await ctx.author.voice.channel.connect()
             else:
-                vote_message = await ctx.send(
-                    f":headphones: **{song['title']}** will be added to the top of the queue by {ctx.author.mention}\n"
-                    "You have 30 seconds to vote by reacting :+1: on this message.\n"
-                    "If more than 50% of the people in your channel agree, the request will be up next!"
-                )
-                await vote_message.add_reaction("\U0001F44D")
-                await asyncio.sleep(30)
-                voters = len(voice_channel.members)
-                voters = voters - 1 if self.vc else voters
-                result_vote_msg = await ctx.fetch_message(vote_message.id)
-                votes = next(react for react in result_vote_msg.reactions if str(
-                    react.emoji) == "\U0001F44D").count - 1
-                if votes >= voters / 2:
-                    self.music_queue.insert(
-                        0,
-                        [song, voice_channel, ctx.author.mention]
-                    )
-                    await ctx.send(
-                        f":headphones: **{song['title']}** will be added played next!"
-                    )
-                else:
-                    self.music_queue.append(
-                        [song, voice_channel, ctx.author.mention]
-                    )
-                    await ctx.send(
-                        f":headphones: **{song['title']}** will be played add the end of the queue!"
-                    )
-
-                if not self.is_playing or (
-                    self.vc == None or not self.vc.is_connected() 
-                ):
-                    await self.play_music(ctx)
-
-    """Pause the currently playing song."""
-
-    @commands.command(name="pause", help="Pause the currently playing song")
-    @commands.has_any_role(*voice_channel_moderator_roles)
-    async def pause(self, ctx):
-        vc = ctx.voice_client
-
-        if not vc or not vc.is_playing():
-            return await ctx.send("I am currently playing nothing!", delete_after=20)
-        elif vc.is_paused():
-            return
-
-        vc.pause()
-        await ctx.send(f":pause_button:  {ctx.author.mention} Paused the song!")
-
-    """Resume the currently playing song."""
-
-    @commands.command(name="resume", help="Resume the currently playing song")
-    @commands.has_any_role(*voice_channel_moderator_roles)
-    async def resume(self, ctx):
-        vc = ctx.voice_client
-
-        if not vc or vc.is_playing():
-            return await ctx.send("I am already playing a song!", delete_after=20)
-        elif not vc.is_paused():
-            return
-
-        vc.resume()
-        await ctx.send(f":play_pause:  {ctx.author.mention} Resumed the song!")
-
-    @commands.command(
-        name="r",
-        help="removes song from queue at index given. \U0001F4A9",
-        aliases=["remove"],
-    )
-    @commands.has_any_role(*voice_channel_moderator_roles)
-    async def remove(self, ctx, *args):
-        query = "".join(*args)
-        try:
-            index = int(query)
-            if 0 < index >= len(self.music_queue):
-                raise
-        except:
-            await ctx.send("Invalid index")
-            return
-
-        await ctx.send(
-            f":x: Music at index {query} removed by {ctx.author.mention}"
-        )
-        self.music_queue.pop(index)
-
-
-    @commands.command(
-        name="rep",
-        help="Restarts the current song. \U000027F2",
-        aliases=["restart"],
-    )
-    @commands.has_any_role(*voice_channel_moderator_roles)
-    async def restart(self, ctx):
-        
-        if not self.current_song:
-            self.is_playing = False
-            self.current_song = None
-            await ctx.send(f""":x: No music playing""")
-            return
-
-        song = self.current_song[0]
-        voice_channel = ctx.author.voice.channel
-        self.music_queue.insert(
-            0,
-            [song, voice_channel, ctx.author.mention]
-        )
-        self.vc.stop()
-        if len(self.music_queue) > 0:
-            self.is_playing = True
-
-            (song, channel, author) = self.music_queue[0]
-            m_url = song["source"]
-
-            if self.vc == None or not self.vc.is_connected():
-                self.vc = await channel.connect()
-                await ctx.send("No music added")
-            else:
-                await self.vc.move_to(channel)
-
-                await ctx.send(
-                    f":repeat: Replaying **{song['title']}** -- requested by {author}"
-                )
-
-                self.vc.play(
-                    discord.FFmpegPCMAudio(m_url, **self.FFMPEG_OPTIONS),
-                    after=lambda e: self.play_next(),
-                )
-                self.current_song = self.music_queue.pop(0)
+                await ctx.send("You are not connected to a voice channel.")
+                raise commands.CommandError(
+                    "Author not connected to a voice channel.")
+            
+    def reset(self):
+        self.voice = None
+        self.player = None
+        self.is_playing = False
+        self.music_queue = []
 
