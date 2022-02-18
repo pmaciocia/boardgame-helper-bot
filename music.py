@@ -164,11 +164,11 @@ class Music(commands.Cog):
         logger.info(f"stop command - author:'{ctx.author}'")
 
         if ctx.voice_client is not None:
-            if ctx.voice_client.paused():
-                await ctx.voice_client.resume()
+            if ctx.voice_client.is_paused():
+                ctx.voice_client.resume()
                 await ctx.send(f":arrow_forward: Resuming the music")
             elif ctx.voice_client.is_playing():    
-                await ctx.voice_client.pause()
+                ctx.voice_client.pause()
                 await ctx.send(f":pause_button: Pausing the music")
             
             
@@ -181,10 +181,11 @@ class Music(commands.Cog):
         """Stops and disconnects the bot from voice"""
         logger.info(f"stop command - author:'{ctx.author}'")
 
+        music_queue = self.music_queue[ctx.guild.id]
         if ctx.voice_client is not None:
             await ctx.voice_client.disconnect()
             
-        self.reset()
+        music_queue.clear()
 
 
     @commands.command()
@@ -268,10 +269,4 @@ class Music(commands.Cog):
             raise commands.CommandError(
                 "Author not connected to a voice channel.")
             
-            
-    def reset(self):
-        self.voice = None
-        self.current_song = None
-        self.is_playing = False
-        self.music_queue = []
 
