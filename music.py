@@ -1,18 +1,16 @@
 import asyncio
-from importlib.abc import SourceLoader
 import logging
-from re import S
+from collections import defaultdict
+from typing import List
+
 import discord
 from discord.ext import commands
 from discord.ext.commands.core import command
-
-from random import shuffle
 
 import youtube_dl
 from youtube_dl import YoutubeDL
 
 logger = logging.getLogger("boardgame.helper.music")
-
 
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ""
@@ -45,7 +43,6 @@ ffmpeg_options = {
 
 ytdl = YoutubeDL(ytdl_format_options)
 
-
 class YTDLSource(discord.PCMVolumeTransformer):
     def __init__(self, source, *, data, volume=0.5):
         super().__init__(source, volume)
@@ -73,55 +70,64 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 
         return songs
 
-
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.player = None
-        self.is_playing = False
-        self.music_queue = []
-
-    @commands.command()
-    @commands.has_any_role(*voice_channel_moderator_roles)
-    async def summon(self, ctx, *, channel: discord.VoiceChannel):
-        """Joins a voice channel"""
-        logger.info(f"Summoned to {channel.guild}/{channel.name} by {ctx.author}")
-
-        if ctx.voice_client is not None:
-            return await ctx.voice_client.move_to(channel)
+        self.music_queue = defaultdict(list)
         
-        await channel.connect()
+    @commands.command()
+    @commands.check_any(
+        commands.is_owner(),
+        commands.has_any_role(*voice_channel_moderator_roles)
+    )
+    async def summon(self, ctx):
+        """Joins a voice channel"""
+        logger.info(f"Summoned! author:'{ctx.author}'")
 
     @commands.command()
-    @commands.has_any_role(*voice_channel_moderator_roles)
+    @commands.check_any(
+        commands.is_owner(),
+        commands.has_any_role(*voice_channel_moderator_roles)
+    )
     async def play(self, ctx, *, song):
-        logger.info(f"play command - song:'{song}' author:'{ctx.author}'")
+        logger.info(f"play command - song:'{song}' author:'{ctx.author}' guild:'{ctx.guild}'")
+        
+        music_queue = self.music_queue[ctx.guild.id]
         
         """Streams from a url (same as yt, but doesn't predownload)"""
         await self.queue_song(ctx, song)
         
-        if len(self.music_queue) > 0 and not self.is_playing:
+        if len(music_queue) > 0 and not ctx.voice_client.is_playing():
             await self.play_music(ctx)
             
     
     @commands.command()
-    @commands.has_any_role(*voice_channel_moderator_roles)
+    @commands.check_any(
+        commands.is_owner(),
+        commands.has_any_role(*voice_channel_moderator_roles)
+    )
     async def skip(self, ctx):
         logger.info(f"skip command - author:{ctx.author}")
         
-        if self.is_playing and ctx.voice_client:
+        if ctx.voice_client:
             ctx.voice_client.stop()
             await self.play_music(ctx)
             
 
     @commands.command()
+    @commands.check_any(
+        commands.is_owner(),
+        commands.has_any_role(*voice_channel_moderator_roles)
+    )
     async def queue(self, ctx):
         logger.info(f"queue command - author:'{ctx.author}'")
 
-        if len(self.music_queue) > 0:
+        music_queue = self.music_queue[ctx.guild.id]
+
+        if len(music_queue) > 0:
             embed = discord.Embed(title=f"Song queue")
             text = ""
-            for (n, (player,_))  in enumerate(self.music_queue):
+            for (n, (player,_))  in enumerate(music_queue):
                 text += f"{n+1}. **{player.title}**\n"
             
             embed.description = text
@@ -131,7 +137,10 @@ class Music(commands.Cog):
 
 
     @commands.command()
-    @commands.has_any_role(*voice_channel_moderator_roles)
+    @commands.check_any(
+        commands.is_owner(),
+        commands.has_any_role(*voice_channel_moderator_roles)
+    )
     async def volume(self, ctx, volume: int):
         """Changes the player's volume"""
         logger.info(f"volume command - volume:'{volume}' author:'{ctx.author}'")
@@ -144,8 +153,12 @@ class Music(commands.Cog):
         ctx.voice_client.source.volume = volume / 100
         await ctx.send(f"Changed volume to {volume}%")
 
+
     @commands.command()
-    @commands.has_any_role(*voice_channel_moderator_roles)
+    @commands.check_any(
+        commands.is_owner(),
+        commands.has_any_role(*voice_channel_moderator_roles)
+    )
     async def pause(self, ctx):
         """Stops and disconnects the bot from voice"""
         logger.info(f"stop command - author:'{ctx.author}'")
@@ -158,8 +171,12 @@ class Music(commands.Cog):
                 await ctx.voice_client.pause()
                 await ctx.send(f":pause_button: Pausing the music")
             
+            
     @commands.command()
-    @commands.has_any_role(*voice_channel_moderator_roles)
+    @commands.check_any(
+        commands.is_owner(),
+        commands.has_any_role(*voice_channel_moderator_roles)
+    )
     async def stop(self, ctx):
         """Stops and disconnects the bot from voice"""
         logger.info(f"stop command - author:'{ctx.author}'")
@@ -169,72 +186,88 @@ class Music(commands.Cog):
             
         self.reset()
 
+
     @commands.command()
-    @commands.has_any_role(*voice_channel_moderator_roles)
+    @commands.check_any(
+        commands.is_owner(),
+        commands.has_any_role(*voice_channel_moderator_roles)
+    )
     async def solo(self, ctx):
         """Stops and disconnects the bot from voice"""
         logger.info(f"solo command - author:'{ctx.author}'")
+        
+        music_queue = self.music_queue[ctx.guild.id]
 
         await self.queue_song(ctx, solo)
         
-        if len(self.music_queue) > 0 and not self.is_playing:
+        if len(music_queue) > 0 and not ctx.voice_client.is_playing():
             await self.play_music(ctx)
+    
+    
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before, after):        
+        if not member.id == self.bot.user.id:
+            return
+    
     
     async def queue_song(self, ctx, song):                
         async with ctx.typing():
-            players = await YTDLSource.from_url(song, loop=self.bot.loop)
-            if players is None or len(players) == 0: 
+            songs = await YTDLSource.from_url(song, loop=self.bot.loop)
+            if len(songs) == 0: 
                 await ctx.send(f":shrug: Couldn't find **{song}** -- requested by {ctx.author.mention}")
             else:
                 text = ""
-                q_msg = not self.is_playing and len(players) > 1
-                for player in players:
-                    logger.info(f"adding song {player.title}")
+                music_queue = self.music_queue[ctx.guild.id]
+                for song in songs:
+                    logger.info(f"adding song {song.title}")
                     
-                    text += f":musical_note: Added **{player.title}** to the queue\n"
-                    self.music_queue.append((player,ctx.author.mention))
-                    if not self.is_playing:
-                        await self.play_music(ctx)
+                    text += f":musical_note: Added **{song.title}** to the queue\n"
+                    music_queue.append((song,ctx.author.mention))
                 
-                if q_msg:
+                if len(music_queue) > 1:
                     await ctx.send(embed=discord.Embed(description=text))                                    
         
+        
     def play_next(self, ctx):        
-        if len(self.music_queue) == 0:
-            self.is_playing = False
+        music_queue = self.music_queue[ctx.guild.id]
+        if len(music_queue) == 0:
             ctx.voice_client.stop()
         else:
-            (player, author) = self.music_queue.pop(0)
-            ctx.voice_client.play(player, after=lambda e: self.play_next(ctx))
-            ctx.send(embed=discord.Embed(description=f":arrow_forward: Playing **{player.title}** -- requested by {author}"))
+            (song, author) = music_queue.pop(0)
+            ctx.voice_client.play(song, after=lambda e: self.play_next(ctx))
+            ctx.send(embed=discord.Embed(
+                description=f":arrow_forward: Playing **{song.title}** -- requested by {author}"))
 
 
     async def play_music(self, ctx):
-        if len(self.music_queue) == 0:
+        music_queue = self.music_queue[ctx.guild.id]
+        if len(music_queue) == 0:
             await ctx.send(f":confused: No songs in the queue")
             self.reset()
         else:
-            self.is_playing = True
-            (player, author) = self.music_queue.pop(0)
-            self.current_song = player
-            await ctx.send(embed=discord.Embed(description=f":arrow_forward: Playing **{player.title}** -- requested by {author}"))
-            ctx.voice_client.play(player)
+            (song, author) = music_queue.pop(0)
+            await ctx.send(embed=discord.Embed(
+                description=f":arrow_forward: Playing **{song.title}** -- requested by {author}"))
+            ctx.voice_client.play(song)
 
                 
-
-
     @play.before_invoke
     @solo.before_invoke
+    @skip.before_invoke
+    @summon.before_invoke
     async def ensure_voice(self, ctx):
         logger.info("ensuring voice connection")
-        if ctx.voice_client is None:
-            if ctx.author.voice:
-                logger.info(f"connecting to {ctx.author.voice.channel.name}")
+        if ctx.author.voice:
+            logger.info(f"connecting to {ctx.author.voice.channel.name}")
+            if ctx.voice_client is None:
                 await ctx.author.voice.channel.connect()
             else:
-                await ctx.send("You are not connected to a voice channel.")
-                raise commands.CommandError(
-                    "Author not connected to a voice channel.")
+                await ctx.voice_client.move_to(ctx.author.voice.channel)
+        else:
+            await ctx.send("You are not connected to a voice channel.")
+            raise commands.CommandError(
+                "Author not connected to a voice channel.")
+            
             
     def reset(self):
         self.voice = None
