@@ -206,11 +206,26 @@ class Music(commands.Cog):
     
     
     @commands.Cog.listener()
-    async def on_voice_state_update(self, member: discord.Member, before, after):        
-        if not member.id == self.bot.user.id:
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):        
+        if member.id == self.bot.user.id:
             return
-    
-    
+        
+        voice = member.guild.voice_client
+        logger.info(f"voice update voice:{voice} member:{member} before:{before.channel} after:{after.channel}")
+        if voice is None:
+            return
+        
+        channel = voice.channel
+        if len(channel.members) == 1 and channel.members[0].id == self.bot.user.id:
+            logger.info(f"channel empty, wait 20s - channel:{channel}")
+            await asyncio.sleep(20)
+            if len(channel.members) == 1 and channel.members[0].id == self.bot.user.id:
+                logger.info(f"disconnecting from {channel}")
+                music_queue = self.music_queue[channel.guild.id]
+                await voice.disconnect()
+                music_queue.clear()
+                
+                    
     async def queue_song(self, ctx, song):                
         async with ctx.typing():
             songs = await YTDLSource.from_url(song, loop=self.bot.loop)
