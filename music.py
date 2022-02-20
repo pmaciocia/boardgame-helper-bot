@@ -90,11 +90,11 @@ class Music(commands.Cog):
         commands.has_any_role(*voice_channel_moderator_roles)
     )
     async def play(self, ctx, *, song):
+        """Play a song or playlist"""
         logger.info(f"play command - song:'{song}' author:'{ctx.author}' guild:'{ctx.guild}'")
         
         music_queue = self.music_queue[ctx.guild.id]
         
-        """Streams from a url (same as yt, but doesn't predownload)"""
         await self.queue_song(ctx, song)
         
         if len(music_queue) > 0 and not ctx.voice_client.is_playing():
@@ -107,6 +107,7 @@ class Music(commands.Cog):
         commands.has_any_role(*voice_channel_moderator_roles)
     )
     async def skip(self, ctx):
+        """Skip to next song"""
         logger.info(f"skip command - author:{ctx.author}")
         
         if ctx.voice_client:
@@ -120,6 +121,7 @@ class Music(commands.Cog):
         commands.has_any_role(*voice_channel_moderator_roles)
     )
     async def queue(self, ctx):
+        """List songs in the queue"""
         logger.info(f"queue command - author:'{ctx.author}'")
 
         music_queue = self.music_queue[ctx.guild.id]
@@ -160,7 +162,7 @@ class Music(commands.Cog):
         commands.has_any_role(*voice_channel_moderator_roles)
     )
     async def pause(self, ctx):
-        """Stops and disconnects the bot from voice"""
+        """Pause or resume music"""
         logger.info(f"stop command - author:'{ctx.author}'")
 
         if ctx.voice_client is not None:
@@ -194,6 +196,7 @@ class Music(commands.Cog):
         commands.has_any_role(*voice_channel_moderator_roles)
     )
     async def solo(self, ctx):
+        """Soloooooooo"""
         logger.info(f"solo command - author:'{ctx.author}'")
         
         music_queue = self.music_queue[ctx.guild.id]
@@ -210,9 +213,10 @@ class Music(commands.Cog):
             return
         
         voice = member.guild.voice_client
-        logger.info(f"voice update voice:{voice} member:{member} before:{before.channel} after:{after.channel}")
         if voice is None:
             return
+        
+        logger.info(f"voice update voice:{voice} member:{member} before:{before.channel} after:{after.channel}")
         
         channel = voice.channel
         if len(channel.members) == 1 and channel.members[0].id == self.bot.user.id:
@@ -241,25 +245,15 @@ class Music(commands.Cog):
                 
                 if len(music_queue) >= 1:
                     await ctx.send(embed=discord.Embed(description=text))                                    
-        
-        
-    async def play_next(self, ctx, voice_client, music_queue):
-        if voice_client.is_connected():        
-            if len(music_queue) > 0:
-                (song, author) = music_queue.pop(0)
-                voice_client.play(song, after=lambda e: wrap_await(self.play_next(ctx, voice_client, music_queue),self.bot.loop))
-                await ctx.send(embed=discord.Embed(
-                    description=f":arrow_forward: Playing **{song.title}** -- requested by {author}"))
-        else:
-            music_queue.clear()
-                
+                        
     async def play_music(self, ctx):
         music_queue = self.music_queue[ctx.guild.id]
         if len(music_queue) > 0:
             (song, author) = music_queue.pop(0)
             await ctx.send(embed=discord.Embed(
                 description=f":arrow_forward: Playing **{song.title}** -- requested by {author}"))
-            ctx.voice_client.play(song, after=lambda e: wrap_await(self.play_next(ctx, ctx.voice_client, music_queue), self.bot.loop))
+            loop = self.bot.loop
+            ctx.voice_client.play(song, after=lambda e: wrap_await(play_next(ctx, ctx.voice_client, music_queue, loop), loop))
 
                 
     @play.before_invoke
@@ -278,12 +272,20 @@ class Music(commands.Cog):
             await ctx.send("You are not connected to a voice channel.")
             raise commands.CommandError(
                 "Author not connected to a voice channel.")
-            
+
+async def play_next(ctx, voice_client, music_queue, loop):
+    if voice_client.is_connected():        
+        if len(music_queue) > 0:
+            (song, author) = music_queue.pop(0)
+            voice_client.play(song, after=lambda e: wrap_await(play_next(ctx, voice_client, music_queue, loop), loop))
+            await ctx.send(embed=discord.Embed(
+                description=f":arrow_forward: Playing **{song.title}** -- requested by {author}"))
+    else:
+        music_queue.clear()
 
 def wrap_await(coro, loop):
     fut = asyncio.run_coroutine_threadsafe(coro, loop)
     try:
         fut.result()
     except:
-        # an error happened sending the message
         pass
