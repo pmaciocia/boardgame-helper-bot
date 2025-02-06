@@ -8,7 +8,6 @@ from bgg import BGGCog
 from meetup import Meetup
 
 from discord.ext import commands
-from boardgamegeek import BGGClient
 
 import logging
 
@@ -22,14 +21,14 @@ token = env.str("DISCORD_TOKEN")
 
 
 def main():
-    bot = commands.Bot(command_prefix=commands.when_mentioned_or('!'),)
+    bot = commands.Bot(intents=discord.Intents.all(), command_prefix=commands.when_mentioned_or('!'),)
 
     async def on_ready():
         logger.info(f'{bot.user} has connected to Discord!')
 
     bot.add_listener(on_ready)
     bot.add_check(commands.guild_only())
-    bot.add_cog(BGGCog(bot))
+    bot.load_extension("bgg")
     bot.add_cog(Meetup(bot))
     bot.run(token)
 

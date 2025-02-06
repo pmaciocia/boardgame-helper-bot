@@ -1,13 +1,16 @@
 import logging
-import discord
-
-from discord.ext import commands
 from boardgamegeek import BGGClient
+
+import discord
+from discord.ext import commands
+
+from functools import lru_cache
 
 logger = logging.getLogger("boardgame.helper.bgg")
 
 
 class BGGCog(commands.Cog, name="BGG"):
+    
     def __init__(self, bot):
         self.bot = bot
         self._bgg = BGGClient()
@@ -16,36 +19,34 @@ class BGGCog(commands.Cog, name="BGG"):
     def game_path(game):
         return f"https://boardgamegeek.com/boardgame/{game.id}"
 
-    async def fetch_game(self, name=None, id=None):
+    @lru_cache(maxsize=128)
+    def fetch_game(self, name=None, id=None):
         if id:
             return [self._bgg.game(game_id=id)]
         if name:
             return self._bgg.games(name)
         return []
 
-    @commands.command(name='bg', help='Lookup a board game')
-    async def lookup(self, ctx: commands.Context, *, message):
-        if len(message) == 0:
-            return
+    # @commands.command(name='bg', help='Lookup a board game')
+    @discord.slash_command()
+    async def lookup(self, ctx: discord.ApplicationContext, game_name: str):
+        user = ctx.author
 
-        user = ctx.message.author
-        game_name = message
-
-        logger.info(f"Looking up game '{message}' for user {user.id}")
-        await ctx.trigger_typing()
+        logger.info(f"Looking up game '{game_name}' for user {user.id}")
+        await ctx.defer()
 
         games = []
         if game_name.isdigit():
-            games = await self.fetch_game(id=int(game_name))
+            games = self.fetch_game(id=int(game_name))
         else:
-            games = await self.fetch_game(name=game_name)
+            games = self.fetch_game(name=game_name)
 
         if len(games) == 0:
             response = "Hmm... not heard of that one!"
-            await ctx.send(response)
+            await ctx.respond(response)
         elif len(games) == 1:
             response = f"{user.mention} I found this game with the {'id' if game_name.isdigit() else 'name'} {game_name}!"
-            await ctx.send(response)
+            await ctx.respond(response)
 
             game = games[0]
             recommend = max((rank.best, rank.player_count)
@@ -62,10 +63,10 @@ class BGGCog(commands.Cog, name="BGG"):
             embed.add_field(name="Description", value=description)
             embed.set_thumbnail(url=game.thumbnail)
 
-            await ctx.send(embed=embed)
+            await ctx.respond(embed=embed)
         else:
             response = f"{user.mention} I found {len(games)} games with the name {game_name}!"
-            await ctx.send(response)
+            await ctx.respond(response)
             embed = discord.Embed(title=f"Games matching '{game_name}'")
 
             for game in sorted(games, key=lambda g: g.boardgame_rank or float('inf')):
@@ -73,4 +74,7 @@ class BGGCog(commands.Cog, name="BGG"):
                                 value=BGGCog.game_path(game))
 
             embed.set_footer(text="Sorted by descending rank")
-            await ctx.send(embed=embed)
+            await ctx.respond(embed=embed)
+
+def setup(bot):
+    bot.add_cog(BGGCog(bot))

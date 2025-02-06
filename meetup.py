@@ -1,10 +1,13 @@
 import logging
 import discord
 from collections import defaultdict
+from typing import List
 
 import sys
 
 from discord.ext import commands
+from discord.commands import SlashCommandGroup
+
 
 logger = logging.getLogger("boardgame.helper.games")
 
@@ -13,25 +16,27 @@ class Meetup(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._games = defaultdict(lambda: {})
-
-    @commands.command(name='reset', hidden=True)
-    @commands.is_owner()
+        
+    meetup = SlashCommandGroup("meetup", "meetup group")
+    games = meetup.create_subgroup("games", "Manage games")
+    manage = meetup.create_subgroup("manage", "Manage games", checks = commands.is_owner().predicate)
+    
+    @manage.command(name='reset', help='Reset the games')
     async def reset(self, ctx):
         logger.info(f"Resetting...")
         self._games.clear()
         await ctx.message.add_reaction('👌')
 
-    @commands.command(name='add_game', help='Add a game you are bringing')
-    async def add_game(self, ctx: commands.Context, *, message):
-        user = ctx.message.author
-        logger.info(f"Add game {message} for user {user.id}")
 
-        game_name = message
+    @games.command(name='add', help='Add a game you are bringing')
+    async def add_game(self, ctx: discord.ApplicationContext, game_name: str):
+        user = ctx.author
+        logger.info(f"Add game {game_name} for user {user.id}")
 
         bgg = self.bot.get_cog("BGG")
         if bgg:
-            await ctx.trigger_typing()
-            bgg_games = await bgg.fetch_game(game_name)
+            await ctx.defer()
+            bgg_games = bgg.fetch_game(game_name)
             if len(bgg_games) > 0:
                 bgg_game = sorted(
                     bgg_games, key=lambda g: g.boardgame_rank or sys.maxsize)[0]
@@ -53,31 +58,29 @@ class Meetup(commands.Cog):
             embed.add_field(name="Description", value=description)
             embed.set_thumbnail(url=bgg_game.thumbnail)
 
-            await ctx.send(embed=embed)
+            await ctx.respond(embed=embed)
         else:
             game = Game(game_name, user)
 
             response = f"{user.mention} is bringing {game.name}"
-            await ctx.send(response)
+            await ctx.respond(response)
 
         self._games[user][game.name.lower()] = game
 
-    @commands.command(name='remove_game', help='Remove a game you were bringing')
-    async def remove_game(self, ctx, *, message):
-        user = ctx.message.author
-        logger.info(f"Remove game {message} for user {user.id}")
+    @games.command(name='remove', help='Remove a game you were bringing')
+    async def remove_game(self, ctx: discord.ApplicationContext, game_name):
+        user = ctx.author
+        logger.info(f"Remove game {game_name} for user {user.id}")
 
         if not user in self._games:
             response = f"{user.mention}, you are not bringing any games"
-            await ctx.send(response)
+            await ctx.respond(response)
             return
 
-        game_name = message.lower()
         games = self._games[user]
-
         if not game_name in games:
             response = f"{user.mention}, you are not bringing any games named {game_name}"
-            await ctx.send(response)
+            await ctx.respond(response)
             return
 
         game = games[game_name]
@@ -85,15 +88,15 @@ class Meetup(commands.Cog):
         response = f"Sorry {players}, but {user.display_name} is not bringing {game.name} anymore!"
 
         del self._games[user][game_name]
-        await ctx.send(response)
+        await ctx.respond(response)
 
-    @commands.command(name='list_games', help='List games that people are bringing')
+    @games.command(name='list', help='List games that people are bringing')
     async def list_games(self, ctx):
-        user = ctx.message.author
+        user = ctx.author
 
         games = self._games.values()
         if len(games) == 0:
-            await ctx.send(f"{user.mention}, No-one is bringing any games yet!")
+            await ctx.respond(f"{user.mention}, No-one is bringing any games yet!")
             return
 
         embed = discord.Embed(title="Games being brought")
@@ -106,16 +109,16 @@ class Meetup(commands.Cog):
                 value = f"No-one has signed up yet! (1/{game.maxplayers})"
             embed.add_field(name=name, value=value, inline=False)
 
-        await ctx.send(embed=embed)
+        await ctx.respond(embed=embed)
 
-    @commands.command(name='list_players', help='List people that want to play your game')
+    @games.command(name='players', help='List people that want to play your game')
     async def list_players(self, ctx):
-        user = ctx.message.author
+        user = ctx.author
         logger.info(f"List players for user {user.id}")
 
         if not user in self._games:
             response = f"{user.mention}, you are not bringing any games"
-            await ctx.send(response)
+            await ctx.respond(response)
             return
 
         games = self._games[user]
@@ -129,12 +132,46 @@ class Meetup(commands.Cog):
 
             embed.add_field(name=game.name, value=response, inline=False)
 
-        await ctx.send(embed=embed)
+        await ctx.respond(embed=embed)
 
-    @commands.command(name='join_game', help='Join a game that someone is bringing')
-    async def join_game(self, ctx, *, message):
-        pass
+    @games.command(name='join', help='Join a game that someone is bringing')
+    async def join_game(self, ctx: discord.ApplicationContext):
+        user = ctx.author
+        games = [ game for games in self._games.values() for game in games.keys() ]
+        if len(games) == 0:
+            await ctx.respond(f"{user.mention}, No-one is bringing any games yet!")
+            return
+        
+        await ctx.respond("Pick a game", view=GameListView(self.bot, games))
+        
 
+class GameList(discord.ui.Select):
+    def __init__(self, bot_: discord.Bot, games: list):
+        self.bot = bot_
+        options = [
+            discord.SelectOption(label=game, value=game) for game in games
+        ]
+        
+        super().__init__(
+            placeholder="Choose what game to play...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+   
+    async def callback(self, interaction: discord.Interaction): # the function called when the user is done selecting options
+        await interaction.response.send_message(
+            f"You chose {self.values[0]}"
+        )
+        
+class GameListView(discord.ui.View):
+    def __init__(self, bot_: discord.Bot, games: list):
+        self.bot = bot_
+        # Adds the dropdown to our View object
+        super().__init__(GameList(self.bot, games))
+
+        # Initializing the view and adding the dropdown can actually be done in a one-liner if preferred:
+        # super().__init__(Dropdown(self.bot))
 
 class Game():
     def __init__(self, name, user, bgg_game=None):
