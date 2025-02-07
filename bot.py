@@ -11,6 +11,8 @@ from discord.ext import commands
 
 import logging
 
+from store import MemoryStore
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("boardgame.helper")
 
@@ -26,10 +28,12 @@ def main():
     async def on_ready():
         logger.info(f'{bot.user} has connected to Discord!')
 
+    store = MemoryStore()
+
     bot.add_listener(on_ready)
     bot.add_check(commands.guild_only())
     bot.load_extension("bgg")
-    bot.add_cog(Meetup(bot))
+    bot.add_cog(Meetup(bot, store))
     bot.run(token)
 
 
