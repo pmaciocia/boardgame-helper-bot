@@ -23,12 +23,11 @@ token = env.str("DISCORD_TOKEN")
 
 
 def main():
-    bot = commands.Bot(intents=discord.Intents.all(), command_prefix=commands.when_mentioned_or('!'),)
+    store = MemoryStore()
 
+    bot = commands.Bot(intents=discord.Intents.default())
     async def on_ready():
         logger.info(f'{bot.user} has connected to Discord!')
-
-    store = MemoryStore()
 
     bot.add_listener(on_ready)
     bot.add_check(commands.guild_only())

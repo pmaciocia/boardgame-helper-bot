@@ -37,7 +37,8 @@ class Meetup(commands.Cog):
         try:
             event = self.store.get_event_for_guild_id(guild_id=guild.id)
             if event is None:
-                event = self.store.add_event(guild_id=guild.id, event_id="test")
+                event = self.store.add_event(
+                    guild_id=guild.id, event_id="test")
 
             logger.info(
                 f"Add game {game_name} for user {user.id}, guild {guild.id}, event {event.id}")
@@ -45,6 +46,7 @@ class Meetup(commands.Cog):
             owner = Player(user.id, user.display_name, user.mention)
 
             bgg = self.bot.get_cog("BGG")
+            embed = None
             if bgg:
                 await ctx.defer()
                 bgg_games = bgg.fetch_game(game_name)
@@ -56,14 +58,12 @@ class Meetup(commands.Cog):
                     return
 
                 game = Game(game_name, bgg_game)
-                embed = game_to_embed(game, owner)
-                await ctx.respond(embed=embed)
             else:
                 game = Game(game_name)
-                response = f"{user.mention} is bringing {game.name}"
-                await ctx.respond(response)
 
-            self.store.add_table(event, owner, game)
+            table = self.store.add_table(event, owner, game)
+            await ctx.respond(embed=GameEmbed(table))
+            
         except Exception as e:
             logger.error("Failed to add game", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
@@ -80,13 +80,13 @@ class Meetup(commands.Cog):
                 response = f"No upcoming events for this server"
                 await ctx.respond(response)
                 return
-            
+
             table = event.tables.get(user.id)
             if table is None:
                 response = f"You are not bringing a game"
                 await ctx.respond(response)
                 return
-            
+
             game = table.game
             players = table.players.values()
             self.store.remove_table(table)
@@ -102,7 +102,7 @@ class Meetup(commands.Cog):
     async def list_games(self, ctx):
         user = ctx.author
         guild = ctx.guild
-        
+
         logger.info(f"List games for user {user.id}, guild {guild.id}")
 
         try:
@@ -123,13 +123,14 @@ class Meetup(commands.Cog):
                 owner = table.owner
                 name = f"{game.name}, brought by {owner.display_name}"
                 if len(table.players) > 0:
-                    players = ", ".join([p.display_name for p in table.players.values()])
+                    players = ", ".join(
+                        [p.display_name for p in table.players.values()])
                     value = f"{players} {"is" if len(players) == 1 else "are"} playing ({len(table.players)}/{game.maxplayers})"
                 else:
                     value = f"No-one has signed up yet! (1/{game.maxplayers})"
                 embed.add_field(name=name, value=value, inline=False)
 
-            await ctx.respond(embed=embed)
+            await ctx.respond(embed=embed, ephemeral=True)
         except Exception as e:
             logger.error("Failed to list games", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
@@ -144,99 +145,141 @@ class Meetup(commands.Cog):
             event = self.store.get_event_for_guild_id(guild_id=guild.id)
             if event is None:
                 response = f"No upcoming events for this server"
-                await ctx.respond(response)
+                await ctx.respond(response, ephemeral=True)
                 return
-            
+
             player = self.store.get_player(user.id)
 
-            table = event.tables[player]
+            table = event.tables[player.id]
             if table is None:
                 response = f"{user.mention}, you are not bringing any games"
-                await ctx.respond(response)
+                await ctx.respond(response, ephemeral=True)
                 return
 
             game = table.game
-            embed = discord.Embed(title=f"Players for {user.display_name}'s games")
-            if len(game.players) > 0:
-                players = ", ".join(game.player_names())
+            embed = discord.Embed(
+                title=f"Players for {user.display_name}'s games")
+            if len(table.players) > 0:
+                players = ", ".join(
+                    p.display_name for p in table.players.values())
                 response = f"Players: {players}"
             else:
                 response = f"No-one has signed up yet to play {game.name}"
 
             embed.add_field(name=game.name, value=response, inline=False)
-            await ctx.respond(embed=embed)
+            await ctx.respond(embed=embed, ephemeral=True)
         except Exception as e:
-            logger.error(e)
+            logger.error("Failed to list players", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
 
     @games.command(name='join', help='Join a game that someone is bringing')
     async def join_game(self, ctx: discord.ApplicationContext):
         user = ctx.author
         guild = ctx.guild
-        
+
         try:
             event = self.store.get_event_for_guild_id(guild_id=guild.id)
             if event is None:
                 response = f"No upcoming events for this server"
-                await ctx.respond(response)
-                return
-                    
-            tables = event.tables.values()
-            if len(tables) == 0:
-                await ctx.respond(f"{user.mention}, No-one is bringing any games yet!")
+                await ctx.respond(response, ephemeral=True)
                 return
 
-            await ctx.respond("Pick a game", view=GameListView(self.bot, tables))
+            tables = list(event.tables.values())
+            if len(tables) == 0:
+                await ctx.respond(f"{user.mention}, No-one is bringing any games yet!", ephemeral=True)
+                return
+
+            embed = GameEmbed(tables[0])
+            view = GameListView(tables=tables)
+            await ctx.respond("Pick a game", embed=embed, view=view, ephemeral=True)
+
+            logger.info("pre view.await()")
+            await view.wait()
+            logger.info("post view.await() - choice=%s", view.choice)
+
+            if view.choice is not None:
+                player = self.store.get_player(user.id)
+                table = tables[view.choice]
+                logging.info("user: %s/%s selected game %s", user.id, user.display_name,  table.game.name)
+                if player is None:
+                    player = Player(user.id, user.display_name, user.mention)
+                self.store.join_table(player=player, table=table)
+
+
         except Exception as e:
             logger.error("Failed to join game", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
 
 
-class GameList(discord.ui.Select):
-    def __init__(self, bot_: discord.Bot, tables):
-        self.bot = bot_
-        self.tables = list(tables)
-        
-        options = [
-            discord.SelectOption(label=table.game.name, description=table.game.description[:100], value=str(idx), ) for idx, table in enumerate(self.tables)
-        ]
-
-        super().__init__(
-            placeholder="Choose what game to play...",
-            min_values=1,
-            max_values=1,
-            options=options,   
-        )
-
-    # the function called when the user is done selecting options
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-
-        try:
-            select = int(self.values[0])
-            await interaction.followup.edit_message(interaction.message.id, content=f"You chose {self.tables[select].game.name}", view=None)
-        except:
-            logger.error("Failed to select game", exc_info=True)
-            await interaction.followup.edit_message(interaction.message.id, content="Something went wrong", view=None)
-            
-            
-
-
 class GameListView(discord.ui.View):
-    def __init__(self, bot_: discord.Bot, games: list):
-        self.bot = bot_
+    def __init__(self, tables: list):
+        self.tables = tables
+        self.index = 0
+        self.choice = None
+
         # Adds the dropdown to our View object
-        super().__init__(GameList(self.bot, games), timeout=30)
-       
+        super().__init__(timeout=30)
 
-def game_to_embed(game, player):
-    description = game.description
-    if len(game.description) > 300:
-        description = description[:297] + "..."
+        self.children[0].disabled = True
+        self.children[1].disabled = len(tables) == 1
 
-    embed = discord.Embed(title=game.name, url=game.link, description=f"{player.mention} is bringing {game.name}!")
-    embed.add_field(name="Players", value=f"{game.minplayers}-{game.maxplayers}", inline=True)
-    embed.add_field(name="Best", value=game.recommended_players, inline=True)
-    embed.add_field(name="Description", value=description)
-    embed.set_thumbnail(url=game.thumbnail)
-    return embed
+    async def edit_page(self, interaction: discord.Interaction):
+        logging.info("index: %s - tables: %d", self.index, len(self.tables))
+        table = self.tables[self.index]
+        l, r = self.children[0:2]
+        l.disabled = self.index == 0
+        r.disabled = self.index == len(self.tables)-1
+
+        e = GameEmbed(table)
+        await interaction.response.edit_message(embed=e, view=self)
+
+    @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.blurple)
+    async def previous(self, button: discord.Button, interaction: discord.Interaction ):
+        logging.info("LEFT BUTTON:- index: %s - tables: %d", self.index, len(self.tables))
+        self.index = max(self.index-1, 0)
+        await self.edit_page(interaction)
+
+    @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.blurple)
+    async def next(self, button: discord.Button, interaction: discord.Interaction):
+        logging.info("RIGHT BUTTON:- index: %s - tables: %d", self.index, len(self.tables))
+        self.index = min(self.index+1, len(self.tables)-1)
+        await self.edit_page(interaction)
+
+    @discord.ui.button(emoji="✅", style=discord.ButtonStyle.blurple)
+    async def join(self, button: discord.Button, interaction: discord.Interaction):
+        logging.info("JOIN BUTTON:- index: %s - tables: %d", self.index, len(self.tables))
+        self.choice = self.index
+        await interaction.response.send_message(
+            content=f"You chose {self.tables[self.index].game.name}", ephemeral=True)
+        
+        self.clear_items()
+        self.stop()
+
+    @discord.ui.button(emoji="❌", style=discord.ButtonStyle.blurple)
+    async def cancel(self, button: discord.Button, interaction: discord.Interaction):
+        logging.info("CANCEL BUTTON:- index: %s - tables: %d", self.index, len(self.tables))
+        await interaction.response.send_message('Cancelled', delete_after=1, ephemeral=True)
+        self.clear_items()
+        self.stop()
+
+class GameEmbed(discord.Embed):
+    def __init__(self, table: Table):
+        owner = table.owner
+        game = table.game
+        super().__init__(title=game.name, url=game.link,
+                         description=f"{owner.mention} is bringing {game.name}")
+
+        description = game.description
+        if len(game.description) > 300:
+            description = description[:297] + "..."
+
+        self.add_field(
+            name="Players", value=f"{game.minplayers}-{game.maxplayers}", inline=True)
+        self.add_field(
+            name="Best", value=game.recommended_players, inline=True)
+        self.add_field(name="Description", value=description)
+        self.set_thumbnail(url=game.thumbnail)
+
+        if len(table.players) > 0:
+            self.add_field(name="Currently signed up to play:", 
+                value=(", ".join(p.display_name for p in table.players.values())))

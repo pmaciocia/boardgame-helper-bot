@@ -110,8 +110,8 @@ class Table:
         self.owner = owner
         self.game = game
         self.players = {}
-        
 
+    
 class Store(ABC):
     @abstractmethod
     def get_event_for_guild_id(self, guild_id: str) -> Event:
@@ -130,7 +130,7 @@ class Store(ABC):
         pass
     
     @abstractmethod
-    def join_table(self, player_id: str, player_mention: str, event: Event) -> Table:
+    def join_table(self, player: Player, table: Table) -> Table:
         pass
     
     @abstractmethod
