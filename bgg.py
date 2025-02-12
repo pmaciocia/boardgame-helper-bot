@@ -1,5 +1,5 @@
 import logging
-from boardgamegeek import BGGClient
+from boardgamegeek import BGGClient, BGGRestrictSearchResultsTo
 
 import discord
 from discord.ext import commands
@@ -24,8 +24,10 @@ class BGGCog(commands.Cog, name="BGG"):
         if id:
             return [self._bgg.game(game_id=id)]
         if name:
-            return self._bgg.games(name)
-        return []
+            games = self._bgg.search(
+                 name,search_type=[BGGRestrictSearchResultsTo.BOARD_GAME, BGGRestrictSearchResultsTo.BOARD_GAME_EXPANSION]
+                 )
+            return [self._bgg.game(g.id) for g in games]
 
     # @commands.command(name='bg', help='Lookup a board game')
     @discord.slash_command()

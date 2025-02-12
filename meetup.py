@@ -49,7 +49,7 @@ class Meetup(commands.Cog):
             embed = None
             if bgg:
                 await ctx.defer()
-                bgg_games = bgg.fetch_game(game_name)
+                bgg_games = bgg.fetch_game(name=game_name)
                 if len(bgg_games) > 0:
                     bgg_game = sorted(
                         bgg_games, key=lambda g: g.boardgame_rank or sys.maxsize)[0]
