@@ -1,6 +1,7 @@
 import logging
 import discord
 
+from discord import client
 from discord.ext import commands
 from discord.commands import SlashCommandGroup
 
@@ -20,11 +21,18 @@ class Meetup(commands.Cog):
     games = meetup.create_subgroup("games", "Manage games")
     manage = meetup.create_subgroup(
         "manage", "Manage games", checks=commands.is_owner().predicate)
+    
+    async def on_ready(self):
+        logging.info("Setting up events")
+        for event in self.store.get_events():
+            for table in event.tables.values():
+                message = table.message
+                logging.info("Add view for table %s - message %d", table.id, message)
+                self.bot.add_view(GameJoinView(table, self.store), message_id=message)
 
     @manage.command(name='reset', help='Reset the games')
-    async def reset(self, ctx):
-        logger.info(f"Resetting...")
-        await ctx.message.add_reaction('👌')
+    async def reset(self, ctx: discord.ApplicationContext):
+        self.store.reset()
 
     @games.command(name='add', help='Add a game you are bringing')
     async def add_game(self, ctx: discord.ApplicationContext, game_name: str):
@@ -35,7 +43,7 @@ class Meetup(commands.Cog):
             event = self.store.get_event_for_guild_id(guild_id=guild.id)
             if event is None:
                 event = self.store.add_event(
-                    guild_id=guild.id, event_id="test")
+                    guild_id=guild.id, event_id="test", channel_id=signup_channel)
 
             logger.info(
                 f"Add game {game_name} for user {user.id}, guild {guild.id}, event {event.id}")
@@ -70,7 +78,8 @@ class Meetup(commands.Cog):
             await ctx.respond(embed=embed)
             
             channel = self.bot.get_channel(signup_channel)
-            await channel.send(content="Click to join", embed=embed, view=GameJoinView(table, self.store))
+            table_message = await channel.send(content="Click to join", embed=embed, view=GameJoinView(table, self.store))
+            self.store.add_table_message(table, table_message.id)
 
         except Exception as e:
             logger.error("Failed to add game", exc_info=True)
@@ -88,20 +97,32 @@ class Meetup(commands.Cog):
                 response = f"No upcoming events for this server"
                 await ctx.respond(response)
                 return
+            logger.debug("Found event %s in guild %s", event.id, guild.id)
 
             table = event.tables.get(user.id)
             if table is None:
                 response = f"You are not bringing a game"
                 await ctx.respond(response)
                 return
-
+            logger.debug("Found table %s in guild %s", table.id, guild.id)
+            
             game = table.game
             players = table.players.values()
             self.store.remove_table(table)
 
             players = ", ".join([p.mention for p in players])
-            response = f"Sorry {players}, but {user.display_name} is not bringing {game.name} anymore!"
-            await ctx.respond(response)
+            response = f"Sorry {players}, but {user.display_name} is not bringing [{game.name}]<{game.link}> anymore!"
+            msg = await ctx.respond(response)
+
+            if len(table.messages) == 0:
+                return
+            
+            msg = table.messages[0]
+            logger.debug("Found message %d for table %s", msg, table.id)
+            msg = self.bot.get_message(msg)
+            if msg:
+                await msg.edit(content=f"{user.mention} removed {game.name}", embed=None, view=None)
+
         except Exception as e:
             logger.error("Failed to remove game", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
@@ -129,7 +150,7 @@ class Meetup(commands.Cog):
             for table in event.tables.values():
                 game = table.game
                 owner = table.owner
-                name = f"{game.name}, brought by {owner.display_name}"
+                name = f"[{game.name}]({game.link}), brought by {owner.display_name}"
                 if len(table.players) > 0:
                     players = ", ".join(
                         [p.display_name for p in table.players.values()])
@@ -197,7 +218,6 @@ class Meetup(commands.Cog):
                 player = self.store.get_player(user.id) or Player(user.id, user.display_name, user.mention)
                 table = tables[view.choice]
                 logging.info("user: %s/%s selected game %s", user.id, user.display_name,  table.game.name)
-
                 self.store.join_table(player=player, table=table)
 
 
@@ -212,7 +232,7 @@ class GameListView(discord.ui.View):
         self.index = 0
         self.choice = None
 
-        super().__init__(timeout=30, disable_on_timeout=True)
+        super().__init__(timeout=None)
 
         self.children[0].disabled = True
         self.children[1].disabled = len(tables) == 1
@@ -302,41 +322,51 @@ class GameEmbed(discord.Embed):
 
 class GameJoinView(discord.ui.View):
     def __init__(self, table:Table, store: Store):
-        self.table = table
+        self.table_id = table.id
         self.store = store
-        super().__init__()
+        super().__init__(timeout=None)
+
+        join = discord.ui.Button(custom_id=f"{table.id}-join", label="Join", style=discord.ButtonStyle.blurple)
+        join.callback = self.join_callback
+        self.add_item(join)
+
+        leave = discord.ui.Button(custom_id=f"{table.id}-leave", label="Leave", style=discord.ButtonStyle.blurple)
+        leave.callback = self.leave_callback
+        self.add_item(leave)
 
     async def update(self, interaction: discord.Interaction):
-        e = GameEmbed(self.table)
+        table = self.store.get_table(self.table_id)
+        if not table:
+            return
+
+        e = GameEmbed(table)
         await interaction.response.edit_message(embed=e, view=self)
 
-        if len(self.table.players) == self.table.game.maxplayers:
+        if len(table.players) == table.game.maxplayers:
             self.children[0].disabled = True
 
-    @discord.ui.button(label="join", style=discord.ButtonStyle.blurple)
-    async def join(self, button: discord.Button, interaction: discord.Interaction):
-        logging.info("JOIN BUTTON")
+    async def join_callback(self, interaction: discord.Interaction):
+        logging.info("JOIN BUTTON for user %s - id %s", interaction.user.id, interaction.custom_id)
 
         user = interaction.user
-        table = self.table
+        table = self.store.get_table(self.table_id)
         player = self.store.get_player(user.id) or Player(user.id, user.display_name, user.mention)
 
-        if not player in table.players:
-            table = self.store.join_table(player, table)
-            self.table = table
-            await self.update(interaction=interaction)
+        if table and player and not player.id in table.players:
+            logger.debug("user %s attempting to join table %s", user.id, table.id)
+            self.store.join_table(player, table)
+        await self.update(interaction=interaction)
 
-    @discord.ui.button(label="leave", style=discord.ButtonStyle.blurple)
-    async def leave(self, button: discord.Button, interaction: discord.Interaction):
-        logging.info("LEAVE BUTTON")
+    async def leave_callback(self, interaction: discord.Interaction):
+        logging.info("LEAVE BUTTON for user %s - id %s", interaction.user.id, interaction.custom_id)
         user = interaction.user
-        table = self.table
+        table = self.store.get_table(self.table_id)
         player = self.store.get_player(user.id) or Player(user.id, user.display_name, user.mention)
 
-        if player in table.players:
-            table = self.store.leave_table(player, table)
-            self.table = table
-            await self.update(interaction=interaction)
+        if table and player and player in table.players:
+            logger.debug("user %s attempting to leave table %s", user.id, table.id)
+            self.store.leave_table(player, table)
+        await self.update(interaction=interaction)
 
 
 class PlayerListEmbed(discord.Embed):

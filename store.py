@@ -1,6 +1,7 @@
 import sqlite3
 from abc import ABC, abstractmethod
 import numbers
+import uuid
 
 # Guild = discord guild
 # Event = next scheduled event in a guild
@@ -62,9 +63,10 @@ import numbers
 # create_tables()
 
 class Event:
-    def __init__(self, id: str, guild_id: str):
+    def __init__(self, id: str, guild_id: int, channel_id: int):
         self.id = id
         self.guild_id = guild_id
+        self.channel_id = channel_id
         self.tables = {}
 
 class Player:
@@ -91,6 +93,7 @@ class Game:
         self.name = bgg_game.name if bgg_game else name
         if bgg_game:
             self.bgg_game = bgg_game
+            self.id = bgg_game.id
             self.link = f"https://boardgamegeek.com/boardgame/{bgg_game.id}"
             self.description = bgg_game.description
             self.thumbnail = bgg_game.thumbnail
@@ -99,6 +102,7 @@ class Game:
             self.recommended_players = max((rank.best, rank.player_count) for rank in bgg_game._player_suggestion)[1]
         else:
             self.bgg_game = None
+            self.id = None
             self.link = None
             self.description = ""
             self.thumbnail = ""
@@ -106,24 +110,28 @@ class Game:
             self.maxplayers = -1
             self.recommended_players = -1
 
-        
 class Table:
     def __init__(self, event: Event, owner: Player, game: Game):
+        self.id = str(uuid.uuid4())
         self.event = event
         self.owner = owner
         self.game = game
         self.players = {}
-
+        self.message = None
     
 class Store(ABC):
     @abstractmethod
-    def get_event_for_guild_id(self, guild_id: str) -> Event:
+    def get_event_for_guild_id(self, guild_id: int) -> Event:
         pass
     
     @abstractmethod
-    def add_event(self, guild_id: str, event_id: str) -> Event:
+    def add_event(self, guild_id: int, event_id: str, channel_id: int) -> Event:
         pass
     
+    @abstractmethod
+    def get_events(self, guild_id: int = None, event_id: int = None) -> list[Event]:
+        pass
+
     @abstractmethod
     def remove_event(self, event: Event) -> None:
         pass
@@ -132,6 +140,10 @@ class Store(ABC):
     def add_table(self, event: Event, owner: Player, game: Game) -> Table:
         pass
     
+    @abstractmethod
+    def get_table(self, table_id: str) -> Table:
+        pass
+
     @abstractmethod
     def join_table(self, player: Player, table: Table) -> Table:
         pass
@@ -147,8 +159,16 @@ class Store(ABC):
     @abstractmethod
     def get_player(self, user_id: str) -> Player:
         pass
-    
-    
+
+    @abstractmethod
+    def add_table_message(self, table: Table, message: int) -> Table:
+        pass
+
+    @abstractmethod
+    def reset() -> None:
+        pass
+
+        
 class MemoryStore(Store):
     def __init__(self):
         self.guild_events = {}
@@ -157,17 +177,26 @@ class MemoryStore(Store):
         self.games = {}
         self.players = {}
 
-    def get_event_for_guild_id(self, guild_id: str) -> Event:
+    def get_event_for_guild_id(self, guild_id: int) -> Event:
         return self.guild_events.get(guild_id)
 
-    def add_event(self, guild_id: str, event_id: str) -> Event:
-        event = Event(event_id, guild_id)
+    def add_event(self, guild_id: str, channel_id: str, event_id: str) -> Event:
+        event = Event(event_id, guild_id, channel_id)
         self.guild_events[guild_id] = event
         self.events[event_id] = event
         return event
 
     def get_event(self, event_id: str) -> Event:
         return self.events.get(event_id)
+
+    def get_events(self, guild_id:int = None, event_id:int = None) -> list[Event]:
+        if guild_id:
+            return self.guild_events.get(guild_id)
+        
+        if event_id and event_id in self.events:
+            return [self.events.get(event_id)]
+        
+        return list(self.events.values())
 
     def remove_event(self, event: Event) -> None:
         if event.id in self.events:
@@ -180,10 +209,13 @@ class MemoryStore(Store):
         table.players[owner.id] = owner
         event.tables[owner.id] = table
         
-        self.tables[table] = table
+        self.tables[table.id] = table
         self.players[owner.id] = owner
-        owner.table = table
+        owner.table = table.id
         return table
+    
+    def get_table(self, table_id: str) -> Table:
+        return self.tables.get(table_id)
 
     def join_table(self, player: Player, table: Table) -> Table:
         if table is None:
@@ -192,9 +224,9 @@ class MemoryStore(Store):
         if len(table.players) >= table.game.maxplayers:
             raise Exception("Table is full")
         
-        table.players[player] = player
+        table.players[player.id] = player
         self.players[player.id] = player
-        player.table = table
+        player.table = table.id
         return table
     
     def leave_table(self, player: Player, table: Table) -> Table:
@@ -204,7 +236,7 @@ class MemoryStore(Store):
         if not player in table.players:
             return table
         
-        del table.players[player]
+        del table.players[player.id]
         player.table = None
         return table
 
@@ -222,3 +254,14 @@ class MemoryStore(Store):
     
     def get_player(self, user_id):
         return self.players.get(user_id)
+    
+    def add_table_message(self, table: Table, message: int) -> Table:
+        table.message = message
+        return table
+    
+    def reset(self):
+        self.guild_events = {}
+        self.events = {}
+        self.tables = {}
+        self.games = {}
+        self.players = {}
