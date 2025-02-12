@@ -27,7 +27,7 @@ class BGGCog(commands.Cog, name="BGG"):
             games = self._bgg.search(
                  name,search_type=[BGGRestrictSearchResultsTo.BOARD_GAME, BGGRestrictSearchResultsTo.BOARD_GAME_EXPANSION]
                  )
-            return [self._bgg.game(g.id) for g in games]
+            return [self._bgg.game(game_id=g.id) for g in games]
 
     # @commands.command(name='bg', help='Lookup a board game')
     @discord.slash_command()
