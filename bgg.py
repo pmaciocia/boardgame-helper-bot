@@ -13,7 +13,7 @@ class BGGCog(commands.Cog, name="BGG"):
     
     def __init__(self, bot):
         self.bot = bot
-        self._bgg = BGGClient()
+        self._bgg = BGGClient(timeout=10)
 
     @staticmethod
     def game_path(game):
