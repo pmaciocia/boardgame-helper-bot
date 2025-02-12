@@ -1,9 +1,5 @@
 import logging
 import discord
-from collections import defaultdict
-from typing import List
-
-import sys
 
 from discord.ext import commands
 from discord.commands import SlashCommandGroup
@@ -13,6 +9,7 @@ from store import *
 
 logger = logging.getLogger("boardgame.helper.games")
 
+signup_channel = 1339272062946246696
 
 class Meetup(commands.Cog):
     def __init__(self, bot: discord.Bot, store: Store):
@@ -47,23 +44,34 @@ class Meetup(commands.Cog):
 
             bgg = self.bot.get_cog("BGG")
             embed = None
+            await ctx.defer()
             if bgg:
-                await ctx.defer()
                 bgg_games = bgg.fetch_game(name=game_name)
-                if len(bgg_games) > 0:
-                    bgg_game = sorted(
-                        bgg_games, key=lambda g: g.boardgame_rank or sys.maxsize)[0]
-                else:
+                if len(bgg_games) > 10:                
+                    await ctx.respond(
+                        content=f"Found {len(bgg_games)} games with the name {game_name} - Try and be more specific",
+                        embed=GamesEmbed(game_name, bgg_games[:10])
+                    )
+
+                    return
+
+                if len(bgg_games) == 0:
                     await ctx.respond(content="couldn't find that game")
                     return
 
-                game = Game(game_name, bgg_game)
+                game = Game(game_name, bgg_games[0])
             else:
                 game = Game(game_name)
 
+
             table = self.store.add_table(event, owner, game)
-            await ctx.respond(embed=GameEmbed(table))
+            embed = GameEmbed(table)
+
+            await ctx.respond(embed=embed)
             
+            channel = self.bot.get_channel(signup_channel)
+            await channel.send(content="Click to join", embed=embed, view=GameJoinView(table, self.store))
+
         except Exception as e:
             logger.error("Failed to add game", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
@@ -204,7 +212,6 @@ class GameListView(discord.ui.View):
         self.index = 0
         self.choice = None
 
-        # Adds the dropdown to our View object
         super().__init__(timeout=30, disable_on_timeout=True)
 
         self.children[0].disabled = True
@@ -213,9 +220,18 @@ class GameListView(discord.ui.View):
     async def on_timeout(self):
         logging.info("timeout GameListView")
         self.clear_items()
-        interaction = self.parent
-        if interaction:
-            await interaction.message.edit(content="Timed out", view=None)
+
+        if self.interaction is None and self.message is not None:
+            # if the view was never interacted with and the message attribute is not None, edit the message
+            await self.message.edit(view=None)
+
+        elif self.interaction is not None:
+            try:
+                # if not already responded to, respond to the interaction
+                await self.interaction.response.edit_message(view=None)
+            except discord.InteractionResponded:
+                # if already responded to, edit the response
+                await self.interaction.edit_original_response(view=None)
 
     async def edit_page(self, interaction: discord.Interaction):
         logging.info("index: %s - tables: %d", self.index, len(self.tables))
@@ -256,6 +272,12 @@ class GameListView(discord.ui.View):
         self.clear_items()
         self.stop()
 
+class GamesEmbed(discord.Embed):
+    def __init__(self, name:str, games: list):
+        desc = "\n".join(f"{idx+1}: [{game.name}](https://boardgamegeek.com/boardgame/{game.id}) ({game.year})" 
+                         for idx, game in enumerate(games))
+        super().__init__(title=f"Games matching '{name}' (top 10 ranked results)", description=desc)
+
 class GameEmbed(discord.Embed):
     def __init__(self, table: Table):
         owner = table.owner
@@ -276,8 +298,47 @@ class GameEmbed(discord.Embed):
 
         if len(table.players) > 0:
             self.add_field(name="Currently signed up to play:", 
-                value=(", ".join(p.display_name for p in table.players.values())))
-            
+                value=(", ".join(p.mention for p in table.players.values())))       
+
+class GameJoinView(discord.ui.View):
+    def __init__(self, table:Table, store: Store):
+        self.table = table
+        self.store = store
+        super().__init__()
+
+    async def update(self, interaction: discord.Interaction):
+        e = GameEmbed(self.table)
+        await interaction.response.edit_message(embed=e, view=self)
+
+        if len(self.table.players) == self.table.game.maxplayers:
+            self.children[0].disabled = True
+
+    @discord.ui.button(label="join", style=discord.ButtonStyle.blurple)
+    async def join(self, button: discord.Button, interaction: discord.Interaction):
+        logging.info("JOIN BUTTON")
+
+        user = interaction.user
+        table = self.table
+        player = self.store.get_player(user.id) or Player(user.id, user.display_name, user.mention)
+
+        if not player in table.players:
+            table = self.store.join_table(player, table)
+            self.table = table
+            await self.update(interaction=interaction)
+
+    @discord.ui.button(label="leave", style=discord.ButtonStyle.blurple)
+    async def leave(self, button: discord.Button, interaction: discord.Interaction):
+        logging.info("LEAVE BUTTON")
+        user = interaction.user
+        table = self.table
+        player = self.store.get_player(user.id) or Player(user.id, user.display_name, user.mention)
+
+        if player in table.players:
+            table = self.store.leave_table(player, table)
+            self.table = table
+            await self.update(interaction=interaction)
+
+
 class PlayerListEmbed(discord.Embed):
     def __init__(self, table: Table):
         owner = table.owner

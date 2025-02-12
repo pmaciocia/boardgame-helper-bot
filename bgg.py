@@ -2,12 +2,12 @@ import logging
 from boardgamegeek import BGGClient, BGGRestrictSearchResultsTo
 
 import discord
+import sys
 from discord.ext import commands
 
 from functools import lru_cache
 
 logger = logging.getLogger("boardgame.helper.bgg")
-
 
 class BGGCog(commands.Cog, name="BGG"):
     
@@ -24,10 +24,19 @@ class BGGCog(commands.Cog, name="BGG"):
         if id:
             return [self._bgg.game(game_id=id)]
         if name:
-            games = self._bgg.search(
+            search = self._bgg.search(
                  name,search_type=[BGGRestrictSearchResultsTo.BOARD_GAME, BGGRestrictSearchResultsTo.BOARD_GAME_EXPANSION]
                  )
-            return [self._bgg.game(game_id=g.id) for g in games]
+            
+            logger.info("found %d games for search %s", len(search), name)
+
+            ids = [game.id for game in search]
+            games = []
+
+            for group in [ids[i:i + 20] for i in range(0, len(ids), 20)]:
+                games.extend(self._bgg.game_list(group))
+
+            return sorted(games, key=lambda g: g.boardgame_rank or sys.maxsize)
 
     # @commands.command(name='bg', help='Lookup a board game')
     @discord.slash_command()

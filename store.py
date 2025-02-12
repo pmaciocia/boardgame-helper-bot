@@ -1,6 +1,6 @@
 import sqlite3
 from abc import ABC, abstractmethod
-
+import numbers
 
 # Guild = discord guild
 # Event = next scheduled event in a guild
@@ -81,6 +81,9 @@ class Player:
         if value is None:
             return False
         
+        if isinstance(value, numbers.Number):
+            return self.id == int(value)
+        
         return self.id == value.id
     
 class Game:
@@ -133,6 +136,10 @@ class Store(ABC):
     def join_table(self, player: Player, table: Table) -> Table:
         pass
     
+    @abstractmethod
+    def leave_table(self, player: Player, table: Table) -> Table:
+        pass
+
     @abstractmethod
     def remove_table(self, table: Table):
         pass
@@ -189,7 +196,17 @@ class MemoryStore(Store):
         self.players[player.id] = player
         player.table = table
         return table
+    
+    def leave_table(self, player: Player, table: Table) -> Table:
+        if table is None:
+            return None
         
+        if not player in table.players:
+            return table
+        
+        del table.players[player]
+        player.table = None
+        return table
 
     def remove_table(self, table: Table):
         if table in self.tables:
@@ -202,7 +219,6 @@ class MemoryStore(Store):
         table.owner.table = None
         for player in table.players.values():
             player.table = None
-            
     
     def get_player(self, user_id):
         return self.players.get(user_id)
