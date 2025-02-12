@@ -114,10 +114,10 @@ class Meetup(commands.Cog):
             response = f"Sorry {players}, but {user.display_name} is not bringing [{game.name}]<{game.link}> anymore!"
             msg = await ctx.respond(response)
 
-            if len(table.messages) == 0:
+            if not table.message:
                 return
             
-            msg = table.messages[0]
+            msg = table.message
             logger.debug("Found message %d for table %s", msg, table.id)
             msg = self.bot.get_message(msg)
             if msg:
