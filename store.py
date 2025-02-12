@@ -206,6 +206,3 @@ class MemoryStore(Store):
     
     def get_player(self, user_id):
         return self.players.get(user_id)
-    
-    
-    

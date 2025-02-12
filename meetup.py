@@ -156,18 +156,7 @@ class Meetup(commands.Cog):
                 await ctx.respond(response, ephemeral=True)
                 return
 
-            game = table.game
-            embed = discord.Embed(
-                title=f"Players for {user.display_name}'s games")
-            if len(table.players) > 0:
-                players = ", ".join(
-                    p.display_name for p in table.players.values())
-                response = f"Players: {players}"
-            else:
-                response = f"No-one has signed up yet to play {game.name}"
-
-            embed.add_field(name=game.name, value=response, inline=False)
-            await ctx.respond(embed=embed, ephemeral=True)
+            await ctx.respond(embed=PlayerListEmbed(table), ephemeral=True)
         except Exception as e:
             logger.error("Failed to list players", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
@@ -193,16 +182,14 @@ class Meetup(commands.Cog):
             view = GameListView(tables=tables)
             await ctx.respond("Pick a game", embed=embed, view=view, ephemeral=True)
 
-            logger.info("pre view.await()")
             await view.wait()
-            logger.info("post view.await() - choice=%s", view.choice)
+            logger.info("view.await() - choice=%s", view.choice)
 
             if view.choice is not None:
-                player = self.store.get_player(user.id)
+                player = self.store.get_player(user.id) or Player(user.id, user.display_name, user.mention)
                 table = tables[view.choice]
                 logging.info("user: %s/%s selected game %s", user.id, user.display_name,  table.game.name)
-                if player is None:
-                    player = Player(user.id, user.display_name, user.mention)
+
                 self.store.join_table(player=player, table=table)
 
 
@@ -218,10 +205,17 @@ class GameListView(discord.ui.View):
         self.choice = None
 
         # Adds the dropdown to our View object
-        super().__init__(timeout=30)
+        super().__init__(timeout=30, disable_on_timeout=True)
 
         self.children[0].disabled = True
         self.children[1].disabled = len(tables) == 1
+
+    async def on_timeout(self):
+        logging.info("timeout GameListView")
+        self.clear_items()
+        interaction = self.parent
+        if interaction:
+            await interaction.message.edit(content="Timed out", view=None)
 
     async def edit_page(self, interaction: discord.Interaction):
         logging.info("index: %s - tables: %d", self.index, len(self.tables))
@@ -283,3 +277,20 @@ class GameEmbed(discord.Embed):
         if len(table.players) > 0:
             self.add_field(name="Currently signed up to play:", 
                 value=(", ".join(p.display_name for p in table.players.values())))
+            
+class PlayerListEmbed(discord.Embed):
+    def __init__(self, table: Table):
+        owner = table.owner
+        game = table.game
+        super().__init__(title=game.name, url=game.link,
+                         description=f"{owner.mention} is bringing {game.name}")
+
+        title=f"Players for {owner.display_name}'s games"
+        if len(table.players) > 0:
+            players = ", ".join(
+                p.display_name for p in table.players.values())
+            response = f"Players: {players}"
+        else:
+            response = f"No-one has signed up yet to play {game.name}"
+
+        self.add_field(name=game.name, value=response, inline=False)
