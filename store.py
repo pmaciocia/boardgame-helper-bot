@@ -153,7 +153,7 @@ class Store(ABC):
         pass
 
     @abstractmethod
-    def remove_table(self, table: Table):
+    def remove_table(self, table: Table) -> None:
         pass
     
     @abstractmethod
@@ -185,9 +185,6 @@ class MemoryStore(Store):
         self.guild_events[guild_id] = event
         self.events[event_id] = event
         return event
-
-    def get_event(self, event_id: str) -> Event:
-        return self.events.get(event_id)
 
     def get_events(self, guild_id:int = None, event_id:int = None) -> list[Event]:
         if guild_id:
@@ -233,14 +230,14 @@ class MemoryStore(Store):
         if table is None:
             return None
         
-        if not player in table.players:
+        if not player.id in table.players:
             return table
         
         del table.players[player.id]
         player.table = None
         return table
 
-    def remove_table(self, table: Table):
+    def remove_table(self, table: Table) -> None:
         if table in self.tables:
             del self.tables[table]
         
@@ -252,7 +249,7 @@ class MemoryStore(Store):
         for player in table.players.values():
             player.table = None
     
-    def get_player(self, user_id):
+    def get_player(self, user_id) -> Player:
         return self.players.get(user_id)
     
     def add_table_message(self, table: Table, message: int) -> Table:
