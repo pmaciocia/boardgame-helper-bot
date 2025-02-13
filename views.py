@@ -6,8 +6,6 @@ import traceback
 import logging
 
 import discord
-from discord.ui.select import BaseSelect
-
 from embeds import GameEmbed
 from store import Store, Table, Player, Game
 
@@ -32,7 +30,7 @@ class BaseView(discord.ui.View):
 
     def _disable_all(self) -> None:
         for item in self.children:
-            if isinstance(item, discord.ui.Button) or isinstance(item, BaseSelect):
+            if isinstance(item, discord.ui.Button) or isinstance(item, discord.ui.Select):
                 item.disabled = True
 
     # after disabling all components we need to edit the message with the new view
