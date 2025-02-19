@@ -86,6 +86,9 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "boardgamegeek2" },
+    { name = "cashews" },
+    { name = "colorlog" },
+    { name = "diskcache" },
     { name = "environs" },
     { name = "py-cord" },
     { name = "pycord" },
@@ -96,6 +99,9 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "boardgamegeek2", specifier = ">=1.0.1" },
+    { name = "cashews", specifier = ">=7.4.0" },
+    { name = "colorlog", specifier = ">=6.9.0" },
+    { name = "diskcache", specifier = ">=5.6.3" },
     { name = "environs", specifier = ">=14.1.0" },
     { name = "py-cord", specifier = ">=2.6.1" },
     { name = "pycord", specifier = ">=0.1.1" },
@@ -114,6 +120,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/8f/b6a4c23fef996b590c159ad223287df10df4d3d8b5a0eb42540c7387f501/boardgamegeek2-1.0.1.tar.gz", hash = "sha256:c679749358935fc705e3e1c92f9a429f432a1494ed6fd4eb549de2ab51fb071a", size = 34856 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d6/a0/49f8c222ca6f952fa570a49aef0866b275fbc2cc0d5e0906000c31bfd0d5/boardgamegeek2-1.0.1-py2.py3-none-any.whl", hash = "sha256:381cb02f04e87ffeb4338ada4a106223cfa2f83199f905dce28839bc19911a83", size = 38481 },
+]
+
+[[package]]
+name = "cashews"
+version = "7.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/c4/53602c566d0c341b4b80f5a4257e303e4e78ffb95452bded2071e88c758a/cashews-7.4.0.tar.gz", hash = "sha256:c9d22b9b9da567788f232374a5de3b30ceed1e5c24085c96d304b696df0dcbd8", size = 91299 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/0c/076f12a0b3005498a6afead1aa40894dfb1ccc14ad7858c0a821e89b57bc/cashews-7.4.0-py3-none-any.whl", hash = "sha256:e881cc9b4be05ac9ce2c448784bca2864776b1c13ee262658d7c0ebf0d3d257a", size = 78908 },
 ]
 
 [[package]]
@@ -158,6 +173,36 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/cd/e5/131d2fb1b0dddafc37be4f3a2fa79aa4c037368be9423061dccadfd90091/charset_normalizer-3.4.1-cp313-cp313-win32.whl", hash = "sha256:eb8178fe3dba6450a3e024e95ac49ed3400e506fd4e9e5c32d30adda88cbd407", size = 95391 },
     { url = "https://files.pythonhosted.org/packages/27/f2/4f9a69cc7712b9b5ad8fdb87039fd89abba997ad5cbe690d1835d40405b0/charset_normalizer-3.4.1-cp313-cp313-win_amd64.whl", hash = "sha256:b1ac5992a838106edb89654e0aebfc24f5848ae2547d22c2c3f66454daa11971", size = 102702 },
     { url = "https://files.pythonhosted.org/packages/0e/f6/65ecc6878a89bb1c23a086ea335ad4bf21a588990c3f535a227b9eea9108/charset_normalizer-3.4.1-py3-none-any.whl", hash = "sha256:d98b1668f06378c6dbefec3b92299716b931cd4e6061f3c875a71ced1780ab85", size = 49767 },
+]
+
+[[package]]
+name = "colorama"
+version = "0.4.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/53/6f443c9a4a8358a93a6792e2acffb9d9d5cb0a5cfd8802644b7b1c9a02e4/colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44", size = 27697 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6", size = 25335 },
+]
+
+[[package]]
+name = "colorlog"
+version = "6.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d3/7a/359f4d5df2353f26172b3cc39ea32daa39af8de522205f512f458923e677/colorlog-6.9.0.tar.gz", hash = "sha256:bfba54a1b93b94f54e1f4fe48395725a3d92fd2a4af702f6bd70946bdc0c6ac2", size = 16624 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e3/51/9b208e85196941db2f0654ad0357ca6388ab3ed67efdbfc799f35d1f83aa/colorlog-6.9.0-py3-none-any.whl", hash = "sha256:5906e71acd67cb07a71e779c47c4bcb45fb8c2993eebe9e5adcd6a6f1b283eff", size = 11424 },
+]
+
+[[package]]
+name = "diskcache"
+version = "5.6.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", size = 67916 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", size = 45550 },
 ]
 
 [[package]]

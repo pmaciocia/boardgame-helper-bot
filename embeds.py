@@ -1,6 +1,7 @@
 
 import discord
-from store import Table
+from store import Table, Game
+from boardgamegeek.objects.games import BoardGame
 
 
 
@@ -22,8 +23,8 @@ class PlayerListEmbed(discord.Embed):
 
 
 class GamesEmbed(discord.Embed):
-    def __init__(self, name: str, games: list):
-        desc = "\n".join(f"{idx+1}: [{game.name}](https://boardgamegeek.com/boardgame/{game.id}) ({game.year})"
+    def __init__(self, name: str, games: list[Game]):
+        desc = "\n".join(f"{idx+1}: [{game.name}]({game.link}) ({game.year})"
                          for idx, game in enumerate(games))
         super().__init__(
             title=f"Games matching '{name}' (top 10 ranked results)", description=desc)

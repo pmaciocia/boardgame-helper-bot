@@ -6,6 +6,8 @@ import traceback
 import logging
 
 import discord
+import discord.ext
+import discord.ext.pages
 from embeds import GameEmbed
 from store import Store, Table, Player, Game
 
@@ -79,8 +81,8 @@ class GameJoinView(discord.ui.View):
         if not table:
             return
 
-        if len(table.players) == table.game.maxplayers:
-            self.children[0].disabled = True
+        logger.debug("Update join view - %s - %d/%d", table.game.name, len(table.players), table.game.maxplayers )
+        self.children[0].disabled = len(table.players) == table.game.maxplayers
 
         e = GameEmbed(table, list_players=True)
         await interaction.response.edit_message(embed=e, view=self)
@@ -107,7 +109,9 @@ class GameJoinView(discord.ui.View):
         player = self.store.get_player(user.id) or Player(
             user.id, user.display_name, user.mention)
 
-        if table and player and player in table.players:
+        logger.debug("player %d table %s - players [%s]", player.id, table.id, 
+                     ", ".join(str(p.id) for p in table.players.values()))
+        if table and player and player.id in table.players:
             logger.debug("user %s attempting to leave table %s",
                          user.id, table.id)
             self.store.leave_table(player, table)
@@ -129,7 +133,7 @@ class GameChooseView(discord.ui.View):
         for idx, game in enumerate(games):
             self.add_button(index=idx, game=game)
 
-    @discord.ui.button(emoji="❌", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(row=1, emoji="❌", style=discord.ButtonStyle.blurple)
     async def cancel(self, button: discord.Button, interaction: discord.Interaction):
         logger.info("CHOOSE CANCEL BUTTON")
         await interaction.response.send_message('Cancelled', delete_after=1, ephemeral=True)

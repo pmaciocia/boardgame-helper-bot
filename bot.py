@@ -4,15 +4,15 @@ import sqlite3
 
 from environs import Env
 
-from bgg import BGGCog
 from meetup import Meetup
 
 from discord.ext import commands
+from boardgamegeek import BGGClient
 
 import logging
 import pickle
 
-from store import MemoryStore
+from store.mem import MemoryStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("boardgame.helper")
@@ -42,7 +42,7 @@ def main():
     bot.add_listener(on_ready)
     bot.add_check(commands.guild_only())
     bot.load_extension("bgg")
-    meetup = Meetup(bot, store)
+    meetup = Meetup(bot, store, BGGClient(timeout=10))
     bot.add_listener(meetup.on_ready, "on_ready")
     bot.add_cog(meetup)
     bot.run(token)

@@ -1,30 +1,42 @@
 import logging
 import discord
+import asyncio
+import functools
+import sys
 
-from discord import client
 from discord.ext import commands
 from discord.commands import SlashCommandGroup
+from boardgamegeek import BGGClient, BGGRestrictSearchResultsTo
+from boardgamegeek.objects.games import BoardGame
+
+from typing import Iterator
 
 from store import *
 from embeds import *
 from views import *
-from views import GameListView
 
+from cashews import cache, noself
+
+cache.setup("disk://?directory=/tmp/cache&timeout=1&shards=0")
 
 logger = logging.getLogger("boardgame.helper.games")
 
 signup_channel = 1339272062946246696
 
+def is_guild_owner():
+    def predicate(ctx):
+        return ctx.guild is not None and ctx.guild.owner_id == ctx.author.id
+    return commands.check(predicate)
 
 class Meetup(commands.Cog):
-    def __init__(self, bot: discord.Bot, store: Store):
+    def __init__(self, bot: discord.Bot, store: Store, bgg: BGGClient):
         self.bot = bot
         self.store = store
+        self.bgg = BGGClient(timeout=10)
 
     meetup = SlashCommandGroup("meetup", "meetup group")
     games = meetup.create_subgroup("games", "Manage games")
-    manage = meetup.create_subgroup(
-        "manage", "Manage games", checks=commands.is_owner().predicate)
+    manage = meetup.create_subgroup( "manage", "Manage games")
 
     async def on_ready(self):
         logger.info("Setting up events")
@@ -36,9 +48,12 @@ class Meetup(commands.Cog):
                 self.bot.add_view(GameJoinView(
                     table, self.store), message_id=message)
 
+    
     @manage.command(name='reset', help='Reset the games')
+    @commands.check_any(commands.is_owner(), is_guild_owner())
     async def reset(self, ctx: discord.ApplicationContext):
         self.store.reset()
+        await ctx.respond()
 
     @games.command(name='add', help='Add a game you are bringing')
     async def add_game(self, ctx: discord.ApplicationContext, game_name: str):
@@ -56,34 +71,29 @@ class Meetup(commands.Cog):
 
             owner = Player(user.id, user.display_name, user.mention)
 
-            bgg = self.bot.get_cog("BGG")
             await ctx.defer(ephemeral=True)
-            if bgg:
-                bgg_games = bgg.fetch_game(name=game_name)
-                game = None
+            bgg_games = await self.async_lookup(name=game_name)
 
-                if len(bgg_games) == 0:
-                    await ctx.respond(content=f"Couldn't find game '{game_name}'")
-                    return
+            if len(bgg_games) == 0:
+                await ctx.respond(content=f"Couldn't find game '{game_name}'")
+                return
 
-                if len(bgg_games) <= 5:
-                    game = Game(game_name, bgg_games[0])
-                else:
-                    view = GameChooseView(game_name, bgg_games)
-                    await ctx.respond(
-                        content=f"Found {len(bgg_games)} games with the name '{game_name}'",
-                        embed=GamesEmbed(game_name, bgg_games[:5]),
-                        view=view,
-                    )
-
-                    timeout = await view.wait()
-                    if timeout or view.choice is None:
-                        view.clear_items()
-                        return
-                    
-                    game = Game(game_name, view.choice)
+            if len(bgg_games) <= 5:
+                game = bgg_games[0]
             else:
-                game = Game(game_name)
+                view = GameChooseView(game_name, bgg_games)
+                await ctx.respond(
+                    content=f"Found {len(bgg_games)} games with the name '{game_name}'",
+                    embed=GamesEmbed(game_name, bgg_games[:5]),
+                    view=view,
+                )
+
+                timeout = await view.wait()
+                if timeout or view.choice is None:
+                    view.clear_items()
+                    return
+                
+                game = view.choice
 
             table = self.store.add_table(event, owner, game)
             embed = GameEmbed(table)
@@ -128,8 +138,8 @@ class Meetup(commands.Cog):
             self.store.remove_table(table)
 
             players = ", ".join([p.mention for p in players])
-            response = f"Sorry {players}, but {user.display_name} is not bringing [{game.name}]<{game.link}> anymore!"
-            msg = await ctx.respond(response)
+            response = f"Sorry {players}, but {user.display_name} is not bringing {game.name} anymore!"
+            msg = await ctx.respond(response, embeds=None)
 
             if not table.message:
                 return
@@ -239,6 +249,50 @@ class Meetup(commands.Cog):
         except Exception as e:
             logger.error("Failed to join game", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
+
+    @noself(cache)(ttl="24h")
+    async def async_lookup(self, name=None, id=None) -> Iterator[Game]:
+        return await run_sync_method(self.lookup, name=name, id=id)
+    
+    def lookup(self, name=None, id=None) -> Iterator[Game]:
+        logger.info("doing lookup id=%s name=%s", id, name)
+
+        if id:
+            return [self.bgg.game(game_id=id)]
+        if name:
+            search = self.bgg.search(
+                 name,search_type=[BGGRestrictSearchResultsTo.BOARD_GAME, BGGRestrictSearchResultsTo.BOARD_GAME_EXPANSION]
+                 )
+            
+            logger.info("found %d games for search %s", len(search), name)
+
+            ids = [game.id for game in search]
+            games = []
+
+            for group in [ids[i:i + 20] for i in range(0, len(ids), 20)]:
+                gs = self.bgg.game_list(group)
+                games.extend(bgg_to_game(bg) for bg in gs)
+
+            return sorted(games, key=lambda g: g.rank or sys.maxsize)
+
+def bgg_to_game(bg: BoardGame) -> Game:
+    r = max((rank.best, rank.player_count) for rank in bg._player_suggestion)[1]
+    return Game(
+        id=bg.id,
+        name=bg.name,
+        year=bg.year,
+        rank=bg.boardgame_rank,
+        description=bg.description, 
+        thumbnail=bg.thumbnail, 
+        minplayers=bg.minplayers, 
+        maxplayers=bg.maxplayers,
+        recommended_players=r
+    )
+
+async def run_sync_method(func, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    func_call = functools.partial(func, *args, **kwargs)
+    return await loop.run_in_executor(None, func_call)
 
 
 
