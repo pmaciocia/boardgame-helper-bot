@@ -21,13 +21,16 @@ class MemoryStore(Store):
         self.events[event_id] = event
         return event
 
-    def get_events(self, guild_id:int = None, event_id:int = None) -> list[Event]:
+    def get_event(self, guild_id:int = None, event_id:int = None) -> list[Event]:
         if guild_id:
             return self.guild_events.get(guild_id)
         
         if event_id and event_id in self.events:
             return [self.events.get(event_id)]
         
+        return list(self.events.values())
+    
+    def get_all_events(self) -> list[Event]:
         return list(self.events.values())
 
     def remove_event(self, event: Event) -> None:

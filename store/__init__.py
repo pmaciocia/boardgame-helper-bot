@@ -59,7 +59,11 @@ class Store(ABC):
         pass
     
     @abstractmethod
-    def get_events(self, guild_id: int = None, event_id: int = None) -> list[Event]:
+    def get_event(self, guild_id: int = None, event_id: int = None) -> list[Event]:
+        pass
+
+    @abstractmethod
+    def get_all_events(self) -> list[Event]:
         pass
 
     @abstractmethod
@@ -87,7 +91,27 @@ class Store(ABC):
         pass
     
     @abstractmethod
+    def add_game(self, game: Game) -> Game:
+        pass
+
+    @abstractmethod
+    def get_game(self, game_id: str) -> Game:
+        pass
+
+    @abstractmethod
+    def remove_game(self, game: Game) -> None:
+        pass
+
+    @abstractmethod
+    def add_player(self, player: Player) -> Player:
+        pass
+
+    @abstractmethod
     def get_player(self, user_id: str) -> Player:
+        pass
+
+    @abstractmethod
+    def remove_player(self, user_id: str) -> Player:
         pass
 
     @abstractmethod

@@ -13,6 +13,7 @@ import logging
 import pickle
 
 from store.mem import MemoryStore
+from store.local import SQLiteStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("boardgame.helper")
@@ -26,14 +27,15 @@ token = env.str("DISCORD_TOKEN")
 
 def main():
     
-    store = MemoryStore()
-    try:
-        with open('store.pickle', 'rb') as f:
-            # Pickle the 'data' dictionary using the highest protocol available.
-            store = pickle.load(f)
-    except:
-        logger.error('Failed to load store', exc_info=True)
+    # store = MemoryStore()
+    # try:
+    #     with open('store.pickle', 'rb') as f:
+    #         # Pickle the 'data' dictionary using the highest protocol available.
+    #         store = pickle.load(f)
+    # except:
+    #     logger.error('Failed to load store', exc_info=True)
     
+    store = SQLiteStore()
 
     bot = commands.Bot(intents=discord.Intents.default())
     async def on_ready():
@@ -47,12 +49,12 @@ def main():
     bot.add_cog(meetup)
     bot.run(token)
 
-    try:
-        with open('store.pickle', 'wb') as f:
-            # Pickle the 'data' dictionary using the highest protocol available.
-            pickle.dump(store, f, pickle.HIGHEST_PROTOCOL)
-    except:
-        logger.error('Failed to save store', exc_info=True)
+    # try:
+    #     with open('store.pickle', 'wb') as f:
+    #         # Pickle the 'data' dictionary using the highest protocol available.
+    #         pickle.dump(store, f, pickle.HIGHEST_PROTOCOL)
+    # except:
+    #     logger.error('Failed to save store', exc_info=True)
 
 
 if __name__ == "__main__":

@@ -3,13 +3,13 @@ import discord
 import asyncio
 import functools
 import sys
+from datetime import datetime, time, UTC
+from typing import Iterator
 
 from discord.ext import commands
 from discord.commands import SlashCommandGroup
 from boardgamegeek import BGGClient, BGGRestrictSearchResultsTo
 from boardgamegeek.objects.games import BoardGame
-
-from typing import Iterator
 
 from store import *
 from embeds import *
@@ -40,7 +40,7 @@ class Meetup(commands.Cog):
 
     async def on_ready(self):
         logger.info("Setting up events")
-        for event in self.store.get_events():
+        for event in self.store.get_all_events():
             for table in list(event.tables.values()):
                 message = table.message
                 logger.info("Add view for table %s - message %d",
@@ -49,11 +49,22 @@ class Meetup(commands.Cog):
                     table, self.store), message_id=message)
 
     
-    @manage.command(name='reset', help='Reset the games')
     @commands.check_any(commands.is_owner(), is_guild_owner())
+    @manage.command(name='reset', help='Reset the games')
     async def reset(self, ctx: discord.ApplicationContext):
         self.store.reset()
         await ctx.respond()
+
+    @commands.check_any(commands.is_owner(), is_guild_owner())
+    @manage.command(name='clean', help='Remove bot messages from today')
+    async def clean(self, ctx: discord.ApplicationContext):
+        start = datetime.combine(datetime.now(UTC), time.min)
+        channel = await self.bot.fetch_channel(ctx.channel_id)
+        await ctx.defer()
+        
+        async for message in channel.history(after=start, reversed=True):
+            if message.author == self.bot.user:
+                await message.delete()
 
     @games.command(name='add', help='Add a game you are bringing')
     async def add_game(self, ctx: discord.ApplicationContext, game_name: str):
@@ -69,8 +80,8 @@ class Meetup(commands.Cog):
             logger.info(
                 f"Add game {game_name} for user {user.id}, guild {guild.id}, event {event.id}")
 
-            owner = Player(user.id, user.display_name, user.mention)
-
+            owner = self.store.add_player(Player(user.id, user.display_name, user.mention))
+            
             await ctx.defer(ephemeral=True)
             bgg_games = await self.async_lookup(name=game_name)
 
@@ -95,6 +106,7 @@ class Meetup(commands.Cog):
                 
                 game = view.choice
 
+            game = self.store.add_game(game)
             table = self.store.add_table(event, owner, game)
             embed = GameEmbed(table)
 
@@ -155,14 +167,14 @@ class Meetup(commands.Cog):
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
 
     @games.command(name='list', help='List games that people are bringing')
-    async def list_games(self, ctx):
+    async def list_games(self, ctx: discord.ApplicationContext):
         user = ctx.author
         guild = ctx.guild
 
         logger.info(f"List games for user {user.id}, guild {guild.id}")
 
         try:
-            event = self.store.get_event_for_guild_id(guild_id=guild.id)
+            event = self.store.get_event_for_guild_id(guild_id=int(guild.id))
             if event is None:
                 response = f"No upcoming events for this server"
                 await ctx.respond(response)

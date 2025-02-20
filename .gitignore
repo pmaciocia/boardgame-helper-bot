@@ -145,3 +145,4 @@ dmypy.json
 env/
 .vscode/settings.json
 .env
+*.sqlite
