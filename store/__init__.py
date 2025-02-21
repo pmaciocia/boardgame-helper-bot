@@ -29,24 +29,46 @@ class Player:
     id: int
     display_name: str
     mention: str
-    table: Optional["Table"] = None
+    _table: Optional["Table"] = None
+
+    @property
+    def table(self):
+        return self._table
+    
+    def table(self, table):
+        self._table = table
 
 @dataclass(unsafe_hash=True)
 class Table:
     event: "Event"
     owner: Player
     game: Game
-    players: Dict[str, Player] = field(default_factory=dict)
+    _players: Dict[str, Player] = field(default_factory=dict)
     message: Optional[int] = None
     id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance
 
-@dataclass(frozen=True)
+    @property
+    def players(self):
+        return self._players
+    
+    @players.setter
+    def players(self, players):
+        self._players = players
+
+@dataclass(frozen=False)
 class Event:
     id: str
     guild_id: int
     channel_id: int
-    tables: Dict[str, Table] = field(default_factory=dict)
+    _tables: Dict[str, Table] = field(default_factory=dict)
 
+    @property
+    def tables(self):
+        return self._tables
+    
+    @tables.setter
+    def tables(self, tables):
+        self._tables = tables
 
 
 class Store(ABC):

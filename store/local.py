@@ -6,8 +6,111 @@ logger = logging.getLogger("boardgame.helper.store.local")
 
 import sqlite3
 import uuid
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Callable
 from dataclasses import dataclass, field, fields
+from functools import partial, wraps
+
+def lazy_load(load: str, keys: list[str]):
+    def _decorate(func):
+        @wraps(func)
+        def decorate(instance):
+            field = f"_{func.__name__}"
+            is_loaded_name = f"{field}_loaded"
+            if not getattr(instance, is_loaded_name, False):
+                logger.info("@@@@@@ lazy loading for %s - %s([%s])", field, load, ", ".join(map(str, keys)))
+                store = getattr(instance.__class__, "_store")
+                if store:
+                    ks = [getattr(instance, key) for key in keys]
+                    logger.info("@@@keys = [%s]", ", ".join(map(str, ks)))
+                    val = getattr(store, load)(*ks)
+                    setattr(instance, is_loaded_name, True)
+                    setattr(instance, field, val)
+            return func(instance)
+        return decorate
+    return _decorate
+
+class Base(object):
+    _store: any
+
+@dataclass(unsafe_hash=True)
+class _Player(Base, Player):
+    _table: Table | None = field(default=None)
+
+    @property
+    @lazy_load(load="get_table_for_player", keys=["id"])
+    def table(self):
+        return self._table
+    
+    @table.setter
+    def table(self, table):
+        self._table = table
+
+@dataclass(unsafe_hash=True)
+class _Table(Base):
+    event_id: str
+    owner_id: str
+    game_id: str
+
+    _event: "Event" = field(default=None)
+    _owner: Player = field(default=None)
+    _game: Game = field(default=None)
+
+    _players: Dict[str, Player] = field(default_factory=dict)
+    message: Optional[int] = None
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance
+
+    @property
+    @lazy_load(load="get_event", keys=["event_id"])
+    def event(self):
+        return self._event
+    
+    @event.setter
+    def event(self, event):
+        self._event = event
+
+    @property
+    @lazy_load(load="get_player", keys=["owner_id"])
+    def owner(self):
+        return self._owner
+    
+    @owner.setter
+    def owner(self, owner):
+        self._owner = owner
+
+    @property
+    @lazy_load(load="get_game", keys=["game_id"])
+    def game(self):
+        return self._game
+    
+    @game.setter
+    def game(self, game):
+        self._game = game
+
+    @property
+    def players(self):
+        return self._players
+    
+    @players.setter
+    def players(self, players):
+        self._players = players
+    
+
+@dataclass(frozen=True)
+class _Event(Base):
+    id: str
+    guild_id: int
+    channel_id: int
+    _tables: Dict[str, Table] = field(default_factory=dict)
+
+    @property
+    def tables(self):
+        return self._table
+    
+    @tables.setter
+    def tables(self, tables):
+        self._tables = tables
+    
+
 
 class SQLiteStore:
     def __init__(self, db_path: str = "bhb.sqlite"):
@@ -15,6 +118,9 @@ class SQLiteStore:
         self.conn.row_factory = dict_factory
         self.conn.set_trace_callback(print)
         self._initialize_db()
+        _Player._store = self
+        _Table._store = self
+        _Event._store = self
 
     def _initialize_db(self):
         with self.conn:
@@ -98,8 +204,6 @@ class SQLiteStore:
             for table in tables:
                 event.tables[table.id] = table
             
-
-          
         return event
     
     def get_all_events(self) -> List:
@@ -127,26 +231,13 @@ class SQLiteStore:
         if not row:
             return None
         
-        event = self.get_event(row["event_id"], load_tables=False)
-        del row["event_id"]
-        row["event"] = event
-
-        owner = self.get_player(row["owner_id"])
-        del row["owner_id"]
-        row["owner"] = owner
-
-        game = self.get_game(row["game_id"])
-        del row["game_id"]
-        row["game"] = game
-
-        table = Table(**row)
-
+        table = _Table(**row)
         players = self.get_players_for_table(table_id=table_id)
-        if players:
+        if len(players) > 0:
             table.players = {p.id: p for p in players}
 
         return table
-    
+
     def add_game(self, game: Game):
         with self.conn:
             self.conn.execute("""
@@ -160,17 +251,12 @@ class SQLiteStore:
     def get_game(self, game_id: str):
         cursor = self.conn.execute("SELECT * FROM game WHERE id = ?", (game_id,))    
         row =  cursor.fetchone()
-
         return Game(**row) if row else None
 
     def get_tables_for_event(self, event_id: str):
         cursor = self.conn.execute("SELECT id FROM _table WHERE event_id = ?", (event_id,))
         rows = cursor.fetchall()
-
-        if not rows:
-            return None
-        
-        return [self.get_table(table_id=row["id"]) for row in rows]
+        return [self.get_table(table_id=row["id"]) for row in rows] if rows else []
 
     def join_table(self, player: Player, table: Table):
         with self.conn:
@@ -201,7 +287,11 @@ class SQLiteStore:
     def get_player(self, player_id: int):
         cursor = self.conn.execute("SELECT * FROM player WHERE id = ?", (player_id,))
         row = cursor.fetchone()
-        return Player(**row) if row else None
+
+        if not row:
+            return None
+
+        return _Player(**row)
 
     def get_players_for_table(self, table_id: int):
         cursor = self.conn.execute("SELECT p.id, p.display_name, p.mention FROM player p LEFT JOIN table_player tp ON tp.player_id = p.id WHERE tp.table_id = ?", (table_id,))
@@ -212,6 +302,12 @@ class SQLiteStore:
             players.append(Player(**row))
 
         return players
+    
+    def get_table_for_player(self, player_id: int) -> Table:
+        cursor = self.conn.execute("SELECT t.* FROM table t LEFT JOIN table_player tp ON tp.table_id = t.id WHERE tp.player_id = ?", (player_id,))
+        row = cursor.fetchone()
+
+        return Table(**row) if row else None
 
     def add_table_message(self, table: Table, message: int):
         with self.conn:
