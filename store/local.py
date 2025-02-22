@@ -6,14 +6,14 @@ logger = logging.getLogger("boardgame.helper.store.local")
 
 import sqlite3
 import uuid
-from typing import Optional, Dict, List, Callable
-from dataclasses import dataclass, field, fields
-from functools import partial, wraps
+from typing import Optional, Dict, List
+from dataclasses import dataclass, field
+from functools import wraps
 
 def lazy_load(load: str, keys: list[str]):
     def _decorate(func):
         @wraps(func)
-        def decorate(instance):
+        def decorate(instance, *args, **kwargs):
             field = f"_{func.__name__}"
             is_loaded_name = f"{field}_loaded"
             if not getattr(instance, is_loaded_name, False):
@@ -21,11 +21,14 @@ def lazy_load(load: str, keys: list[str]):
                 store = getattr(instance.__class__, "_store")
                 if store:
                     ks = [getattr(instance, key) for key in keys]
-                    logger.info("@@@keys = [%s]", ", ".join(map(str, ks)))
+                    logger.info("@@@ keys = [%s]", ", ".join(map(str, ks)))
                     val = getattr(store, load)(*ks)
+                    # if the field expects a dict but we get a list, convert it
+                    if isinstance(getattr(instance, field), dict) and isinstance(val, list):
+                        val = {v.id: v for v in val}
                     setattr(instance, is_loaded_name, True)
                     setattr(instance, field, val)
-            return func(instance)
+            return func(instance, *args, **kwargs)
         return decorate
     return _decorate
 
@@ -87,6 +90,7 @@ class _Table(Base):
         self._game = game
 
     @property
+    @lazy_load(load="get_players_for_table", keys=["id"])
     def players(self):
         return self._players
     
@@ -95,7 +99,7 @@ class _Table(Base):
         self._players = players
     
 
-@dataclass(frozen=True)
+@dataclass(unsafe_hash=True)
 class _Event(Base):
     id: str
     guild_id: int
@@ -103,15 +107,14 @@ class _Event(Base):
     _tables: Dict[str, Table] = field(default_factory=dict)
 
     @property
+    @lazy_load(load="get_tables_for_event", keys=["id"])
     def tables(self):
-        return self._table
+        return self._tables
     
     @tables.setter
     def tables(self, tables):
         self._tables = tables
     
-
-
 class SQLiteStore:
     def __init__(self, db_path: str = "bhb.sqlite"):
         self.conn = sqlite3.connect(db_path, autocommit=True)
@@ -143,7 +146,7 @@ class SQLiteStore:
                 CREATE TABLE IF NOT EXISTS table_player (
                     table_id TEXT,
                     player_id INTEGER,
-
+                    UNIQUE(table_id, player_id) ON CONFLICT IGNORE
                     FOREIGN KEY(table_id) REFERENCES _table(id)
                     FOREIGN KEY(player_id) REFERENCES player(id)
                 );
@@ -194,17 +197,7 @@ class SQLiteStore:
         logger.info("get event %s", event_id)
         cursor = self.conn.execute(query, (event_id,))
         row = cursor.fetchone()
-
-        if not row:
-            return None
-        
-        event = Event(**row)
-        if load_tables:
-            tables = self.get_tables_for_event(event_id=event_id)
-            for table in tables:
-                event.tables[table.id] = table
-            
-        return event
+        return _Event(**row) if row else None
     
     def get_all_events(self) -> List:
         query = "SELECT id FROM event"
@@ -227,16 +220,7 @@ class SQLiteStore:
     def get_table(self, table_id: str):
         cursor = self.conn.execute("SELECT * FROM _table WHERE id = ?", (table_id,))
         row =  cursor.fetchone()
-
-        if not row:
-            return None
-        
-        table = _Table(**row)
-        players = self.get_players_for_table(table_id=table_id)
-        if len(players) > 0:
-            table.players = {p.id: p for p in players}
-
-        return table
+        return _Table(**row) if row else None
 
     def add_game(self, game: Game):
         with self.conn:
