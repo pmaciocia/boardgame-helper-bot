@@ -92,8 +92,9 @@ class GameJoinView(discord.ui.View):
                     interaction.user.id, interaction.custom_id)
         user = interaction.user
         table = self.store.get_table(self.table_id)
-        player = self.store.get_player(user.id) or Player(
-            user.id, user.display_name, user.mention)
+        player = self.store.get_player(user.id)
+        if player is None:
+            player = self.store.add_player(Player(user.id, user.display_name, user.mention))
 
         if table and player and not player.id in table.players:
             logger.debug("user %s attempting to join table %s",
