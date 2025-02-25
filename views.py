@@ -9,26 +9,16 @@ import discord
 import discord.ext
 import discord.ext.pages
 from embeds import GameEmbed
-from store import Store, Table, Player, Game
+from store import Store, Table, Player, Game, Event
 
 logger = logging.getLogger("boardgame.helper.view")
 
 class BaseView(discord.ui.View):
-    interaction: discord.Interaction | None = None
     message: discord.Message | None = None
+    interaction: discord.Interaction | None = None  
 
-    def __init__(self, user: discord.User | discord.Member, timeout: float = 60.0):
-        super().__init__(timeout=timeout)
-        self.user = user
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message(
-                "You cannot interact with this view.", ephemeral=True
-            )
-            return False
-        self.interaction = interaction
-        return True
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def _disable_all(self) -> None:
         for item in self.children:
@@ -48,7 +38,7 @@ class BaseView(discord.ui.View):
             except discord.InteractionResponded:
                 await self.interaction.edit_original_response(**kwargs)
 
-    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item[BaseView]) -> None:
+    async def on_error(self, error: Exception, item: discord.ui.Item[BaseView], interaction: discord.Interaction) -> None:
         tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         message = f"An error occurred while processing the interaction for {str(item)}:\n```py\n{tb}\n```"
         self._disable_all()
@@ -60,7 +50,7 @@ class BaseView(discord.ui.View):
         await self._edit(view=self)
 
 
-class GameJoinView(discord.ui.View):
+class GameJoinView(BaseView):
     def __init__(self, table: Table, store: Store):
         self.table_id = table.id
         self.store = store
@@ -85,7 +75,7 @@ class GameJoinView(discord.ui.View):
         self.children[0].disabled = len(table.players) == table.game.maxplayers
 
         e = GameEmbed(table, list_players=True)
-        await interaction.response.edit_message(embed=e, view=self)
+        await self._edit(embed=e, view=self)
 
     async def join_callback(self, interaction: discord.Interaction):
         logger.info("JOIN BUTTON for user %s - id %s",
@@ -120,17 +110,11 @@ class GameJoinView(discord.ui.View):
 
 
 
-class GameChooseView(discord.ui.View):
-    def __init__(self, name: str, games: list):
+class GameChooseView(BaseView):
+    def __init__(self, games: list, timeout: int = 1):
         self.choice = None
         games = games[0:5]
-        # desc = "\n".join(f"{idx+1}: [{game.name}](https://boardgamegeek.com/boardgame/{game.id}) ({game.year})"
-        #                  for idx, game in enumerate(games[0:5]))
-        # super().__init__(title=f"Games matching '{name}' (top 5 ranked results)", description=desc,
-        #                  disable_on_timeout=True, timeout=60)
-
-        super().__init__(disable_on_timeout=True)
-
+        super().__init__(disable_on_timeout=True, timeout=timeout)
         for idx, game in enumerate(games):
             self.add_button(index=idx, game=game)
 
@@ -138,7 +122,7 @@ class GameChooseView(discord.ui.View):
     async def cancel(self, button: discord.Button, interaction: discord.Interaction):
         logger.info("CHOOSE CANCEL BUTTON")
         await interaction.response.send_message('Cancelled', delete_after=1, ephemeral=True)
-        self.clear_items()
+        self.disable_all_items()
         self.stop()
 
     def add_button(self, index: int, game: Game) -> discord.ui.Button:
@@ -150,52 +134,39 @@ class GameChooseView(discord.ui.View):
             logger.info("CHOOSE BUTTON:- index: %s - game: %s/%s",
                         index, game.id, game.name)
             self.choice = game
-            await interaction.response.send_message(
-                content=f"You chose {game.name}", ephemeral=True)
-            self.clear_items()
+            await self._edit(content=f"You chose {game.name}")
+            self.disable_all_items()
+            await self.message.edit(embed=None, view=None)
             self.stop()
 
         button.callback = callback
         self.add_item(button)
         return button
 
-    async def on_timeout(self):
-        logger.info("timeout GameChooseView")
-        self.clear_items()
+class GameListView(BaseView):
+    interaction: discord.Interaction | None = None
+    message: discord.Message | None = None
 
-    async def on_timeout(self):
-        logger.info("timeout GameListView")
-        self.clear_items()
-
-        interaction = self.parent
-        try:
-            await interaction.response.edit_message(view=None, delete_after=5)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(view=None, delete_after=5)
-
-
-class GameListView(discord.ui.View):
-    def __init__(self, tables: list[Table]):
-        self.tables = tables
+    def __init__(self, event: Event, store: Store):
+        self.event_id = event.id
+        self.store = store
+        self.tables = list(event.tables.values())
         self.index = 0
         self.choice = None
 
         super().__init__(timeout=None)
 
         self.children[0].disabled = True
-        self.children[1].disabled = len(tables) == 1
-
-    async def on_timeout(self):
-        logger.info("timeout GameListView")
-        self.clear_items()
-
-        interaction = self.parent
-        try:
-            await interaction.response.edit_message(view=None, delete_after=5)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(view=None, delete_after=5)
+        self.children[1].disabled = len(self.tables) == 1
 
     async def edit_page(self, interaction: discord.Interaction):
+        event = self.store.get_event(self.event_id)
+        if not event:
+            await self.on_timeout()
+            return
+        
+        self.tables = list(event.tables.values())
+        
         logger.info("index: %s - tables: %d", self.index, len(self.tables))
         table = self.tables[self.index]
         l, r = self.children[0:2]
@@ -203,7 +174,7 @@ class GameListView(discord.ui.View):
         r.disabled = self.index == len(self.tables)-1
 
         e = GameEmbed(table, list_players=True)
-        await interaction.response.edit_message(embed=e, view=self)
+        await self._edit(embed=e, view=self)
 
     @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.blurple)
     async def previous(self, button: discord.Button, interaction: discord.Interaction):
@@ -224,16 +195,17 @@ class GameListView(discord.ui.View):
         logger.info("JOIN BUTTON:- index: %s - tables: %d",
                     self.index, len(self.tables))
         self.choice = self.index
-        await interaction.response.send_message(
-            content=f"You chose {self.tables[self.index].game.name}", ephemeral=True)
+        await self._edit(content=f"You chose {self.tables[self.index].game.name}", embed=None, view=None)
 
-        self.clear_items()
+        self.disable_all_items()
         self.stop()
 
     @discord.ui.button(emoji="❌", style=discord.ButtonStyle.blurple)
     async def cancel(self, button: discord.Button, interaction: discord.Interaction):
         logger.info("CANCEL BUTTON:- index: %s - tables: %d",
                     self.index, len(self.tables))
-        await interaction.response.send_message('Cancelled', delete_after=1, ephemeral=True)
-        self.clear_items()
+    
+    
+        
+        await self.message.edit(content="Cancelled", delete_after=0)
         self.stop()

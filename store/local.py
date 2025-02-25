@@ -17,11 +17,10 @@ def lazy_load(load: str, keys: list[str]):
             field = f"_{func.__name__}"
             is_loaded_name = f"{field}_loaded"
             if not getattr(instance, is_loaded_name, False):
-                logger.info("@@@@@@ lazy loading for %s - %s([%s])", field, load, ", ".join(map(str, keys)))
+                logger.debug("lazy loading for %s - %s([%s])", field, load, ", ".join(map(str, keys)))
                 store = getattr(instance.__class__, "_store")
                 if store:
                     ks = [getattr(instance, key) for key in keys]
-                    logger.info("@@@ keys = [%s]", ", ".join(map(str, ks)))
                     val = getattr(store, load)(*ks)
                     # if the field expects a dict but we get a list, convert it
                     if isinstance(getattr(instance, field), dict) and isinstance(val, list):
@@ -173,18 +172,8 @@ class SQLiteStore:
         query = "SELECT * FROM event WHERE guild_id = ?"
         cursor = self.conn.execute(query, (guild_id,))
         row = cursor.fetchone()
+        return _Event(**row) if row else None
 
-        if not row:
-            return None
-        
-        event = Event(**row)
-
-        tables = self.get_tables_for_event(event_id=event.id)
-        if tables:
-            for t in tables:
-                event.tables[t.owner.id] = t
-          
-        return event
 
     def add_event(self, guild_id: int, event_id: str, channel_id: int):
         with self.conn:
@@ -203,7 +192,6 @@ class SQLiteStore:
         query = "SELECT id FROM event"
         cursor = self.conn.execute(query)
         rows = cursor.fetchall()
-
         return [self.get_event(event_id=row["id"]) for  row in rows]
 
     def remove_event(self, event_id: str) -> None:
@@ -226,9 +214,8 @@ class SQLiteStore:
         with self.conn:
             self.conn.execute("""
                 INSERT INTO game (id, name, year, rank, description, thumbnail, minplayers, maxplayers, recommended_players)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING;
             """, (game.id, game.name, game.year, game.rank, game.description, game.thumbnail, game.minplayers, game.maxplayers, game.recommended_players))
-    
         return self.get_game(game.id)
 
 
@@ -271,11 +258,7 @@ class SQLiteStore:
     def get_player(self, player_id: int):
         cursor = self.conn.execute("SELECT * FROM player WHERE id = ?", (player_id,))
         row = cursor.fetchone()
-
-        if not row:
-            return None
-
-        return _Player(**row)
+        return _Player(**row) if row else None
 
     def get_players_for_table(self, table_id: int):
         cursor = self.conn.execute("SELECT p.id, p.display_name, p.mention FROM player p LEFT JOIN table_player tp ON tp.player_id = p.id WHERE tp.table_id = ?", (table_id,))
@@ -290,13 +273,11 @@ class SQLiteStore:
     def get_table_for_player(self, player_id: int) -> Table:
         cursor = self.conn.execute("SELECT t.* FROM table t LEFT JOIN table_player tp ON tp.table_id = t.id WHERE tp.player_id = ?", (player_id,))
         row = cursor.fetchone()
-
-        return Table(**row) if row else None
+        return _Table(**row) if row else None
 
     def add_table_message(self, table: Table, message: int):
         with self.conn:
             self.conn.execute("UPDATE _table SET message = ? WHERE id = ?", (message, table.id))
-
         return self.get_table(table_id=table.id)
 
     def reset(self) -> None:
