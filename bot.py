@@ -1,20 +1,8 @@
-import os
 import discord
-import sqlite3
-
 from environs import Env
-
-from meetup import Meetup
-
 from discord.ext import commands
-from boardgamegeek import BGGClient
 
 import logging
-import pickle
-
-from store.mem import MemoryStore
-from store.local import SQLiteStore
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("boardgame.helper")
 logger.setLevel(logging.DEBUG)

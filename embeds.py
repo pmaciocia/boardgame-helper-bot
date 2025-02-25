@@ -12,7 +12,6 @@ class PlayerListEmbed(discord.Embed):
         super().__init__(title=game.name, url=game.link,
                          description=f"{owner.mention} is bringing {game.name}")
 
-        title = f"Players for {owner.display_name}'s games"
         if len(table.players) > 0:
             players = ", ".join(p.display_name for p in table.players.values())
             response = f"Players: {players}"

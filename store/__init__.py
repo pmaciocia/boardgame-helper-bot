@@ -29,55 +29,50 @@ class Player:
     id: int
     display_name: str
     mention: str
-    _table: Optional["Table"] = None
-
-    @property
-    def table(self):
-        return self._table
-    
-    def table(self, table):
-        self._table = table
+    table: Optional["Table"] = None
 
 @dataclass(unsafe_hash=True)
 class Table:
     event: "Event"
     owner: Player
     game: Game
-    _players: Dict[str, Player] = field(default_factory=dict)
+    players: Dict[str, Player] = field(default_factory=dict)
     message: Optional[int] = None
     id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance
-
-    @property
-    def players(self):
-        return self._players
-    
-    @players.setter
-    def players(self, players):
-        self._players = players
 
 @dataclass(frozen=False)
 class Event:
     id: str
-    guild_id: int
+    guild: "Guild"
+    tables: Dict[str, Table] = field(default_factory=dict)
+
+@dataclass(frozen=False)
+class Guild:
+    id: str
     channel_id: int
-    _tables: Dict[str, Table] = field(default_factory=dict)
-
-    @property
-    def tables(self):
-        return self._tables
-    
-    @tables.setter
-    def tables(self, tables):
-        self._tables = tables
-
+    event: "Event"
+    roles: list[int] = field(default_factory=list)
 
 class Store(ABC):
+    
     @abstractmethod
-    def get_event_for_guild_id(self, guild_id: int) -> Event:
+    def add_guild(self, guild_id: int, channel_id: int, role_id:int = None) -> Guild:
         pass
     
     @abstractmethod
-    def add_event(self, guild_id: int, event_id: str, channel_id: int) -> Event:
+    def get_guild(self, guild_id: int) -> Guild:
+        pass
+
+    @abstractmethod
+    def add_role(self, guild: Guild, role_id: int) -> Guild:
+        pass
+    
+    @abstractmethod
+    def remove_role(self, guild: Guild, role_id: int) -> Guild:
+        pass
+    
+    @abstractmethod
+    def add_event(self, guild: Guild, event_id: str) -> Event:
         pass
     
     @abstractmethod

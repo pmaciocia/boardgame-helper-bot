@@ -13,9 +13,10 @@ from store import Store, Table, Player, Game, Event
 
 logger = logging.getLogger("boardgame.helper.view")
 
+
 class BaseView(discord.ui.View):
     message: discord.Message | None = None
-    interaction: discord.Interaction | None = None  
+    interaction: discord.Interaction | None = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -25,10 +26,10 @@ class BaseView(discord.ui.View):
             if isinstance(item, discord.ui.Button) or isinstance(item, discord.ui.Select):
                 item.disabled = True
 
-    # after disabling all components we need to edit the message with the new view
-    # now when editing the message there are two scenarios:
-    # 1. the view was never interacted with i.e in case of plain timeout here message attribute will come in handy
-    # 2. the view was interacted with and the interaction was processed and we have the latest interaction stored in the interaction attribute
+    async def interaction_check(self, interaction):
+        self.interaction = interaction
+        return True
+
     async def _edit(self, **kwargs: typing.Any) -> None:
         if self.interaction is None and self.message is not None:
             await self.message.edit(**kwargs)
@@ -39,7 +40,8 @@ class BaseView(discord.ui.View):
                 await self.interaction.edit_original_response(**kwargs)
 
     async def on_error(self, error: Exception, item: discord.ui.Item[BaseView], interaction: discord.Interaction) -> None:
-        tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+        tb = "".join(traceback.format_exception(
+            type(error), error, error.__traceback__))
         message = f"An error occurred while processing the interaction for {str(item)}:\n```py\n{tb}\n```"
         self._disable_all()
         await self._edit(content=message, view=self)
@@ -48,6 +50,7 @@ class BaseView(discord.ui.View):
     async def on_timeout(self) -> None:
         self._disable_all()
         await self._edit(view=self)
+        self.stop()
 
 
 class GameJoinView(BaseView):
@@ -67,11 +70,13 @@ class GameJoinView(BaseView):
         self.add_item(leave)
 
     async def update(self, interaction: discord.Interaction):
+        # self.interaction = interaction
         table = self.store.get_table(self.table_id)
         if not table:
             return
 
-        logger.debug("Update join view - %s - %d/%d", table.game.name, len(table.players), table.game.maxplayers )
+        logger.debug("Update join view - %s - %d/%d", table.game.name,
+                     len(table.players), table.game.maxplayers)
         self.children[0].disabled = len(table.players) == table.game.maxplayers
 
         e = GameEmbed(table, list_players=True)
@@ -84,7 +89,8 @@ class GameJoinView(BaseView):
         table = self.store.get_table(self.table_id)
         player = self.store.get_player(user.id)
         if player is None:
-            player = self.store.add_player(Player(user.id, user.display_name, user.mention))
+            player = self.store.add_player(
+                Player(user.id, user.display_name, user.mention))
 
         if table and player and not player.id in table.players:
             logger.debug("user %s attempting to join table %s",
@@ -100,7 +106,7 @@ class GameJoinView(BaseView):
         player = self.store.get_player(user.id) or Player(
             user.id, user.display_name, user.mention)
 
-        logger.debug("player %d table %s - players [%s]", player.id, table.id, 
+        logger.debug("player %d table %s - players [%s]", player.id, table.id,
                      ", ".join(str(p.id) for p in table.players.values()))
         if table and player and player.id in table.players:
             logger.debug("user %s attempting to leave table %s",
@@ -109,9 +115,8 @@ class GameJoinView(BaseView):
         await self.update(interaction=interaction)
 
 
-
 class GameChooseView(BaseView):
-    def __init__(self, games: list, timeout: int = 1):
+    def __init__(self, games: list, timeout: int = 300):
         self.choice = None
         games = games[0:5]
         super().__init__(disable_on_timeout=True, timeout=timeout)
@@ -134,14 +139,15 @@ class GameChooseView(BaseView):
             logger.info("CHOOSE BUTTON:- index: %s - game: %s/%s",
                         index, game.id, game.name)
             self.choice = game
-            await self._edit(content=f"You chose {game.name}")
+            await interaction.response.send_message(
+                content=f"You chose {game.name}", ephemeral=True)
             self.disable_all_items()
-            await self.message.edit(embed=None, view=None)
             self.stop()
 
         button.callback = callback
         self.add_item(button)
         return button
+
 
 class GameListView(BaseView):
     interaction: discord.Interaction | None = None
@@ -164,9 +170,9 @@ class GameListView(BaseView):
         if not event:
             await self.on_timeout()
             return
-        
+
         self.tables = list(event.tables.values())
-        
+
         logger.info("index: %s - tables: %d", self.index, len(self.tables))
         table = self.tables[self.index]
         l, r = self.children[0:2]
@@ -204,8 +210,35 @@ class GameListView(BaseView):
     async def cancel(self, button: discord.Button, interaction: discord.Interaction):
         logger.info("CANCEL BUTTON:- index: %s - tables: %d",
                     self.index, len(self.tables))
-    
-    
-        
         await self.message.edit(content="Cancelled", delete_after=0)
         self.stop()
+
+
+class GuildSettingsView(BaseView):
+    role_choice: int = None
+    channel_choice: int = None
+
+    def __init__(self, store: Store):
+        self.store = store
+        super().__init__(timeout=None)
+        
+    async def update(self):
+        if self.role_choice and self.channel_choice:
+            guild = self.store.get_guild(self.interaction.guild_id) or self.store.add_guild(
+                self.interaction.guild_id, self.channel_choice)
+
+            self.store.add_role(guild, self.role_choice)
+            await self._edit(content="Guild settings updated", view=None)
+            self.stop()
+        else:
+            await self._edit(content="Please select a role and channel", view=self)
+
+    @discord.ui.role_select(placeholder="Select role")
+    async def role_callback(self, select, interaction):
+        self.role_choice = select.values[0].id
+        await self.update()
+
+    @discord.ui.channel_select(placeholder="Select channel")
+    async def channel_callback(self, select, interaction):
+        self.channel_choice = select.values[0].id
+        await self.update()

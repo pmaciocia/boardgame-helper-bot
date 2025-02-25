@@ -100,10 +100,11 @@ class _Table(Base):
 
 @dataclass(unsafe_hash=True)
 class _Event(Base):
-    id: str
     guild_id: int
     channel_id: int
+    _guild: "_Guild" = field(default=None)
     _tables: Dict[str, Table] = field(default_factory=dict)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance
 
     @property
     @lazy_load(load="get_tables_for_event", keys=["id"])
@@ -113,6 +114,42 @@ class _Event(Base):
     @tables.setter
     def tables(self, tables):
         self._tables = tables
+        
+    @property
+    @lazy_load(load="get_guild", keys=["guild_id"])
+    def guild(self):
+        return self._guild
+    
+    @guild.setter
+    def guild(self, guild):
+        self._guild = guild
+        
+        
+@dataclass(unsafe_hash=True)
+class _Guild(Base):
+    id: str
+    channel_id: int
+    _event: "_Event" = field(default=None)
+    _roles: list[int] = field(default_factory=list)
+
+    @property
+    @lazy_load(load="get_event_for_guild_id", keys=["id"])
+    def event(self):
+        return self._event
+    
+    @event.setter
+    def event(self, event):
+        self._event = event
+
+    @property
+    @lazy_load(load="get_roles_for_guild", keys=["id"])
+    def roles(self):
+        return self._tables
+    
+    @roles.setter
+    def roles(self, roles):
+        self._roles = roles
+    
     
 class SQLiteStore:
     def __init__(self, db_path: str = "bhb.sqlite"):
@@ -128,10 +165,21 @@ class SQLiteStore:
         with self.conn:
             self.conn.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS guild (
+                    id INTEGER PRIMARY KEY,
+                    channel_id INTEGER
+                );
+                CREATE TABLE IF NOT EXISTS guild_roles (
+                    guild_id INTEGER,
+                    role_id INTEGER,
+                    UNIQUE(guild_id, role_id) ON CONFLICT IGNORE,
+                    FOREIGN KEY(guild_id) REFERENCES guild(id)
+                );
                 CREATE TABLE IF NOT EXISTS event (
                     id TEXT PRIMARY KEY,
                     guild_id INTEGER NOT NULL,
-                    channel_id INTEGER NOT NULL
+                    channel_id INTEGER NOT NULL,
+                    FOREIGN KEY(guild_id) REFERENCES guild(id)
                 );
                 CREATE TABLE IF NOT EXISTS _table (
                     id TEXT PRIMARY KEY,
@@ -139,14 +187,13 @@ class SQLiteStore:
                     owner_id INTEGER NOT NULL,
                     game_id INTEGER NOT NULL,
                     message INTEGER,
-
                     FOREIGN KEY(event_id) REFERENCES event(id)
                 );
                 CREATE TABLE IF NOT EXISTS table_player (
                     table_id TEXT,
                     player_id INTEGER,
-                    UNIQUE(table_id, player_id) ON CONFLICT IGNORE
-                    FOREIGN KEY(table_id) REFERENCES _table(id)
+                    UNIQUE(table_id, player_id) ON CONFLICT IGNORE,
+                    FOREIGN KEY(table_id) REFERENCES _table(id),
                     FOREIGN KEY(player_id) REFERENCES player(id)
                 );
                 CREATE TABLE IF NOT EXISTS player (
@@ -167,13 +214,47 @@ class SQLiteStore:
                 );
                 """
             )
-
+            
+    def add_guild(self, guild_id: int, channel_id: int, role_id:int = None):
+        with self.conn:
+            self.conn.execute("INSERT INTO guild (id, channel_id) VALUES (?, ?)", (guild_id, channel_id,))
+            if role_id:
+                self.conn.execute("INSERT INTO guild_roles (guild_id, role_id) VALUES (?, ?)", (guild_id, role_id,))
+                
+        return self.get_guild(guild_id)
+    
+    def get_guild(self, guild_id: int):
+        cursor = self.conn.execute("SELECT * FROM guild WHERE id = ?", (guild_id,))
+        row = cursor.fetchone()
+        return _Guild(**row) if row else None
+    
+    def add_role(self, guild: Guild, role_id: int) -> Guild:
+        with self.conn:
+            self.conn.execute("INSERT INTO guild_roles (guild_id, role_id) VALUES (?, ?)", (guild.id, role_id,))
+        
+        return self.get_guild(guild.id)
+    
+    def remove_role(self, guild: Guild, role_id: int):
+        with self.conn:
+            self.conn.execute("DELETE FROM guild_roles WHERE guild_id = ? AND role_id = ?", (guild.id, role_id,))
+        
+        return self.get_guild(guild.id)
+    
+    def get_roles_for_guild(self, guild_id: int):
+        cursor = self.conn.execute("SELECT role_id FROM guild_roles WHERE guild_id = ?", (guild_id,))
+        rows = cursor.fetchall()
+        return [row["role_id"] for row in rows]
+    
+    def remove_guild(self, guild: Guild):
+        with self.conn:
+            self.conn.execute("DELETE FROM guild WHERE id = ?", (guild.id,))
+            self.conn.execute("DELETE FROM guild_roles WHERE guild_id = ?", (guild.id,))
+           
     def get_event_for_guild_id(self, guild_id: int):
         query = "SELECT * FROM event WHERE guild_id = ?"
         cursor = self.conn.execute(query, (guild_id,))
         row = cursor.fetchone()
         return _Event(**row) if row else None
-
 
     def add_event(self, guild_id: int, event_id: str, channel_id: int):
         with self.conn:

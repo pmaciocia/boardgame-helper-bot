@@ -55,8 +55,25 @@ class Meetup(commands.Cog):
     @manage.command(name='reset', help='Reset the games')
     async def reset(self, ctx: discord.ApplicationContext):
         self.store.reset()
-        await ctx.respond()
+        await ctx.defer()
+        
+    
+    @commands.check_any(commands.is_owner())
+    @manage.command(name='sync', help='Resync bot commands')
+    async def sync(self, ctx: discord.ApplicationContext):
+        self.bot.sync_commands()
+        await ctx.defer()
+        
+    @commands.check_any(commands.is_owner(), is_guild_owner())
+    @manage.command(name='settings', help='Manage settings for this guild')
+    async def settings(self, ctx: discord.ApplicationContext):
+        view = GuildSettingsView(self.store)
+        msg = await ctx.respond("Please select a role and channel", view=view, ephemeral=True)
+        view.message = msg
 
+        await view.wait()
+        logger.info("view.await() - role=%d channel=%d", view.role_choice, view.channel_choice)
+    
     @commands.check_any(commands.is_owner(), is_guild_owner())
     @manage.command(name='clean', help='Remove bot messages from today')
     async def clean(self, ctx: discord.ApplicationContext):
@@ -74,13 +91,13 @@ class Meetup(commands.Cog):
         guild = ctx.guild
 
         try:
-            event = self.store.get_event_for_guild_id(guild_id=guild.id)
+            guild = self.store.get_guild(guild.id) or self.store.add_guild(channel_id=ctx.channel_id, guild_id=guild.id)
+            
+            event = guild.event
             if event is None:
-                event = self.store.add_event(
-                    guild_id=guild.id, event_id="test", channel_id=signup_channel)
+                event = self.store.add_event(guild=guild)
 
-            logger.info(
-                f"Add game {game_name} for user {user.id}, guild {guild.id}, event {event.id}")
+            logger.info(f"Add game {game_name} for user {user.id}, guild {guild.id}, event {event.id}")
 
             owner = self.store.get_player(user.id) or self.store.add_player(
                 Player(user.id, user.display_name, user.mention))
@@ -108,16 +125,13 @@ class Meetup(commands.Cog):
                     view.clear_items()
                     await message.edit(content="Cancelled", embed=None, view=None)
                     return
-
                 game = view.choice
 
             game = self.store.add_game(game)
             table = self.store.add_table(event, owner, game)
-            embed = GameEmbed(table)
+            await ctx.respond(embed=GameEmbed(table))
 
-            await ctx.respond(embed=embed)
-
-            channel = self.bot.get_channel(signup_channel)
+            channel = self.bot.get_channel(guild.channel_id)
             join_view = GameJoinView(table, self.store)
             table_message = await channel.send(
                 content="Click to join",
@@ -125,6 +139,7 @@ class Meetup(commands.Cog):
                 view=join_view
             )
             join_view.message = table_message
+            
             self.store.add_table_message(table, table_message.id)
 
         except Exception as e:
@@ -181,12 +196,13 @@ class Meetup(commands.Cog):
         logger.info(f"List games for user {user.id}, guild {guild.id}")
 
         try:
-            event = self.store.get_event_for_guild_id(guild_id=int(guild.id))
-            if event is None:
+            guild = self.store.get_guild(guild.id)
+            if guild is None or guild.event is None:
                 response = f"No upcoming events for this server"
                 await ctx.respond(response)
                 return
-
+            
+            event = guild.event
             if len(event.tables) == 0:
                 response = f"No games yet for the next event"
                 await ctx.respond(response)
@@ -214,12 +230,13 @@ class Meetup(commands.Cog):
         logger.info(f"List players for user {user.id}, guild {guild.id}")
 
         try:
-            event = self.store.get_event_for_guild_id(guild_id=guild.id)
-            if event is None:
+            guild = self.store.get_guild(guild.id)
+            if guild is None or guild.event is None:
                 response = f"No upcoming events for this server"
                 await ctx.respond(response, ephemeral=True)
                 return
-
+            
+            event = guild.event
             player = self.store.get_player(user.id)
 
             table = event.tables[player.id]
@@ -239,11 +256,12 @@ class Meetup(commands.Cog):
         guild = ctx.guild
 
         try:
-            event = self.store.get_event_for_guild_id(guild_id=guild.id)
-            if event is None:
+            guild = self.store.get_guild(guild.id)
+            if guild is None or guild.event is None:
                 response = f"No upcoming events for this server"
                 await ctx.respond(response, ephemeral=True)
                 return
+            event = guild.event
 
             tables = list(event.tables.values())
             if len(tables) == 0:
