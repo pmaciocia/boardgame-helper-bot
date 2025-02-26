@@ -58,7 +58,7 @@ class _Table(Base):
     _game: Game = field(default=None)
 
     _players: Dict[str, Player] = field(default_factory=dict)
-    message: Optional[int] = None
+    _messages: Optional[list["Message"]] = field(default_factory=list)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance
 
     @property
@@ -96,6 +96,15 @@ class _Table(Base):
     @players.setter
     def players(self, players):
         self._players = players
+
+    @property
+    @lazy_load(load="get_messages_for_table", keys=["id"])
+    def messages(self):
+        return self._messages
+    
+    @messages.setter
+    def messages(self, messages):
+        self._messages = messages
     
 
 @dataclass(unsafe_hash=True)
@@ -149,17 +158,17 @@ class _Guild(Base):
     @roles.setter
     def roles(self, roles):
         self._roles = roles
-    
-    
+
 class SQLiteStore:
     def __init__(self, db_path: str = "bhb.sqlite"):
         self.conn = sqlite3.connect(db_path, autocommit=True)
         self.conn.row_factory = dict_factory
-        self.conn.set_trace_callback(print)
+        # self.conn.set_trace_callback(print)
         self._initialize_db()
         _Player._store = self
         _Table._store = self
         _Event._store = self
+        _Guild._store = self
 
     def _initialize_db(self):
         with self.conn:
@@ -186,15 +195,23 @@ class SQLiteStore:
                     event_id TEXT NOT NULL,
                     owner_id INTEGER NOT NULL,
                     game_id INTEGER NOT NULL,
-                    message INTEGER,
-                    FOREIGN KEY(event_id) REFERENCES event(id)
+                    FOREIGN KEY(event_id) REFERENCES event(id),
+                    FOREIGN KEY(owner_id) REFERENCES player(id),
+                    FOREIGN KEY(game_id) REFERENCES game(id)
                 );
                 CREATE TABLE IF NOT EXISTS table_player (
                     table_id TEXT,
                     player_id INTEGER,
                     UNIQUE(table_id, player_id) ON CONFLICT IGNORE,
-                    FOREIGN KEY(table_id) REFERENCES _table(id),
+                    FOREIGN KEY(table_id) REFERENCES _table(id) ON DELETE CASCADE,
                     FOREIGN KEY(player_id) REFERENCES player(id)
+                );
+                CREATE TABLE IF NOT EXISTS table_message (
+                    table_id TEXT,
+                    message_id INTEGER,
+                    UNIQUE(table_id, message_id) ON CONFLICT IGNORE,
+                    FOREIGN KEY(table_id) REFERENCES _table(id) ON DELETE CASCADE,
+                    FOREIGN KEY(message_id) REFERENCES message(id)
                 );
                 CREATE TABLE IF NOT EXISTS player (
                     id INTEGER PRIMARY KEY,
@@ -212,6 +229,12 @@ class SQLiteStore:
                     maxplayers INTEGER,
                     recommended_players INTEGER
                 );
+                CREATE TABLE IF NOT EXISTS message (
+                    id INTEGER PRIMARY KEY,
+                    guild_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    type INTEGER
+                );
                 """
             )
             
@@ -223,6 +246,11 @@ class SQLiteStore:
                 
         return self.get_guild(guild_id)
     
+    def update_guild(self, guild: Guild, channel_id: int) -> Guild:
+        with self.conn:
+            self.conn.execute("UPDATE guild SET channel_id = ? WHERE id = ?", (channel_id, guild.id,))
+        return self.get_guild(guild.id)
+
     def get_guild(self, guild_id: int):
         cursor = self.conn.execute("SELECT * FROM guild WHERE id = ?", (guild_id,))
         row = cursor.fetchone()
@@ -256,9 +284,11 @@ class SQLiteStore:
         row = cursor.fetchone()
         return _Event(**row) if row else None
 
-    def add_event(self, guild_id: int, event_id: str, channel_id: int):
+    def add_event(self, guild: Guild, event_id: str = None):
+        if event_id is None:
+            event_id = str(uuid.uuid4())
         with self.conn:
-            self.conn.execute("INSERT INTO event (id, guild_id, channel_id) VALUES (?, ?, ?)", (event_id, guild_id, channel_id,))
+            self.conn.execute("INSERT INTO event (id, guild_id, channel_id) VALUES (?, ?, ?)", (event_id, guild.id, guild.channel_id))
         
         return self.get_event(event_id=event_id)
 
@@ -326,6 +356,7 @@ class SQLiteStore:
         with self.conn:
             self.conn.execute("DELETE FROM _table WHERE id = ?", (table.id,))
             self.conn.execute("DELETE FROM table_player WHERE table_id = ?", (table.id,))
+            self.conn.execute("DELETE FROM table_message WHERE table_id = ?", (table.id,))
 
     def add_player(self, player: Player):
         with self.conn:
@@ -356,10 +387,37 @@ class SQLiteStore:
         row = cursor.fetchone()
         return _Table(**row) if row else None
 
-    def add_table_message(self, table: Table, message: int):
+    def add_table_message(self, table: Table, message: Message) -> Table:
+        self.add_message(message)
         with self.conn:
-            self.conn.execute("UPDATE _table SET message = ? WHERE id = ?", (message, table.id))
+            self.conn.execute("INSERT INTO table_message (table_id, message_id) VALUES (?, ?)", (table.id, message.id))
         return self.get_table(table_id=table.id)
+
+    def get_table_for_message(self, message: int) -> Table:
+        cursor = self.conn.execute("SELECT * FROM _table WHERE message = ?", (message,))
+        row = cursor.fetchone()
+        return _Table(**row) if row else None
+
+    def get_messages_for_table(self, table_id: int) -> List[Message]:
+        cursor = self.conn.execute("SELECT m.* FROM message m LEFT JOIN table_message tm ON tm.message_id = m.id WHERE tm.table_id = ?", (table_id,))
+        rows = cursor.fetchall()
+        return [Message(**row) for row in rows] if len(rows) > 0 else []
+
+    def add_message(self, message: Message) -> Message:
+        with self.conn:
+            self.conn.execute("INSERT INTO message (id, guild_id, channel_id, type) VALUES (?, ?, ?, ?)", (message.id, message.guild_id, message.channel_id, message.type))
+        return self.get_message(message.id)
+
+    def get_message(self, message_id: int) -> Message:
+        cursor = self.conn.execute("SELECT * FROM message WHERE id = ?", (message_id,))
+        row = cursor.fetchone()
+        return Message(**row) if row else None
+
+    def delete_message(self, message: Message) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM message WHERE id = ?", (message.id,))
+            self.conn.execute("DELETE FROM table_message WHERE message_id = ?", (message.id,))
+
 
     def reset(self) -> None:
         with self.conn:

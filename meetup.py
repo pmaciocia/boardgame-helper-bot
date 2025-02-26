@@ -30,12 +30,11 @@ def is_guild_owner():
         return ctx.guild is not None and ctx.guild.owner_id == ctx.author.id
     return commands.check(predicate)
 
-
 class Meetup(commands.Cog):
     def __init__(self, bot: discord.Bot, store: Store, bgg: BGGClient):
         self.bot = bot
         self.store = store
-        self.bgg = BGGClient(timeout=10)
+        self.bgg = bgg
 
     meetup = SlashCommandGroup("meetup", "meetup group")
     games = meetup.create_subgroup("games", "Manage games")
@@ -45,18 +44,18 @@ class Meetup(commands.Cog):
         logger.info("Setting up events")
         for event in self.store.get_all_events():
             for table in list(event.tables.values()):
-                message = table.message
-                logger.info("Add view for table %s - message %d",
-                            table.id, message)
-                self.bot.add_view(GameJoinView(
-                    table, self.store), message_id=message)
-
+                for message in table.messages:
+                    if message.type == MessageType.JOIN:
+                        logger.info("Add view for table %s - message %d",
+                                    table.id, message.id)
+                        self.bot.add_view(GameJoinView(
+                            table, self.store), message_id=message.id)
+                
     @commands.check_any(commands.is_owner(), is_guild_owner())
     @manage.command(name='reset', help='Reset the games')
     async def reset(self, ctx: discord.ApplicationContext):
         self.store.reset()
         await ctx.defer()
-        
     
     @commands.check_any(commands.is_owner())
     @manage.command(name='sync', help='Resync bot commands')
@@ -71,6 +70,8 @@ class Meetup(commands.Cog):
         msg = await ctx.respond("Please select a role and channel", view=view, ephemeral=True)
         view.message = msg
 
+        self.bot.delete_messages()
+
         await view.wait()
         logger.info("view.await() - role=%d channel=%d", view.role_choice, view.channel_choice)
     
@@ -80,10 +81,7 @@ class Meetup(commands.Cog):
         start = datetime.combine(datetime.now(UTC), time.min)
         channel = await self.bot.fetch_channel(ctx.channel_id)
         await ctx.defer()
-
-        async for message in channel.history(after=start):
-            if message.author == self.bot.user:
-                await message.delete()
+        await channel.purge(after=start, check=lambda m: m.author == self.bot.user, bulk=False)
 
     @games.command(name='add', help='Add a game you are bringing')
     async def add_game(self, ctx: discord.ApplicationContext, game_name: str):
@@ -92,18 +90,23 @@ class Meetup(commands.Cog):
 
         try:
             guild = self.store.get_guild(guild.id) or self.store.add_guild(channel_id=ctx.channel_id, guild_id=guild.id)
-            
             event = guild.event
             if event is None:
                 event = self.store.add_event(guild=guild)
 
             logger.info(f"Add game {game_name} for user {user.id}, guild {guild.id}, event {event.id}")
 
-            owner = self.store.get_player(user.id) or self.store.add_player(
-                Player(user.id, user.display_name, user.mention))
+            user_tables = [table for table in event.tables.values() if table.owner.id == user.id]
+            if len(user_tables) > 0:
+                response = f"You are already bringing a game - {user_tables[0].game.name}"
+                await ctx.respond(response, ephemeral=True, delete_after=5)
+                return
 
             await ctx.defer(ephemeral=True)
             bgg_games = await self.async_lookup(name=game_name)
+
+            owner = self.store.get_player(user.id) or self.store.add_player(
+                Player(user.id, user.display_name, user.mention))
 
             if len(bgg_games) == 0:
                 await ctx.respond(content=f"Couldn't find game '{game_name}'")
@@ -122,26 +125,24 @@ class Meetup(commands.Cog):
 
                 timeout = await view.wait()
                 if timeout or view.choice is None:
-                    view.clear_items()
-                    await message.edit(content="Cancelled", embed=None, view=None)
                     return
                 game = view.choice
 
             game = self.store.add_game(game)
             table = self.store.add_table(event, owner, game)
-            await ctx.respond(embed=GameEmbed(table))
+            if guild.channel_id != ctx.channel_id:
+                add_msg = await ctx.respond(embed=GameEmbed(table))
+                table = self.store.add_table_message(table, Message(add_msg.id, guild.id, ctx.channel_id, MessageType.ADD))
 
             channel = self.bot.get_channel(guild.channel_id)
             join_view = GameJoinView(table, self.store)
-            table_message = await channel.send(
+            join_message = await channel.send(
                 content="Click to join",
                 embed=GameEmbed(table, list_players=True),
                 view=join_view
             )
-            join_view.message = table_message
-            
-            self.store.add_table_message(table, table_message.id)
-
+            join_view.message = join_message
+            table = self.store.add_table_message(table, Message(join_message.id, guild.id, ctx.channel_id, MessageType.JOIN))
         except Exception as e:
             logger.error("Failed to add game", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
@@ -153,36 +154,49 @@ class Meetup(commands.Cog):
         logger.info(f"Remove game for user {user.id}, guild {guild.id}")
 
         try:
-            event = self.store.get_event_for_guild_id(guild_id=guild.id)
-            if event is None:
+            guild = self.store.get_guild(guild.id)
+            if guild is None or guild.event is None:
                 response = f"No upcoming events for this server"
                 await ctx.respond(response)
                 return
-            logger.debug("Found event %s in guild %s", event.id, guild.id)
+            
+            event = guild.event
+            tables = event.tables
+            user_tables = [table for table in tables.values() if table.owner.id == user.id]
 
-            table = event.tables.get(user.id)
-            if table is None:
-                response = f"You are not bringing a game"
+            if len(user_tables) == 0:
+                response = f"You are not bringing any games"
                 await ctx.respond(response)
                 return
-            logger.debug("Found table %s in guild %s", table.id, guild.id)
 
-            game = table.game
-            players = table.players.values()
-            self.store.remove_table(table)
+            for table in user_tables:
+                logger.debug("Found table %s in guild %s", table.id, guild.id)
+                game = table.game
+                players = table.players.values()
 
-            players = ", ".join([p.mention for p in players])
-            response = f"Sorry {players}, but {user.display_name} is not bringing {game.name} anymore!"
-            msg = await ctx.respond(response, embeds=None)
+                players = ", ".join([p.mention for p in players])
+                response = f"Sorry {players}, but {user.display_name} is not bringing {game.name} anymore!"
+                await ctx.respond(response, embeds=None)
 
-            if not table.message:
-                return
+                messages = table.messages
+                if len(messages) == 0:
+                    continue
 
-            msg = table.message
-            logger.debug("Found message %d for table %s", msg, table.id)
-            msg = self.bot.get_message(msg)
-            if msg:
-                await msg.edit(content=f"{user.mention} removed {game.name}", embed=None, view=None)
+                for message in messages:
+                    logger.debug("Process message %d for table %s", message.id, table.id)
+                    msg = self.bot.get_message(message.id)
+                    if not msg:
+                        logger.debug("Try find message %d for channel %d", message.id, message.channel_id)
+                        channel = await self.bot.fetch_channel(message.channel_id)
+                        message = await channel.fetch_message(message.id)
+                    
+                    if msg:
+                        await msg.edit(content=f"{user.mention} removed {game.name}", embed=None, view=None)
+                    else:
+                        logger.debug("Message %d not found - removing", message.id)
+                        self.store.delete_message(message)
+
+                self.store.remove_table(table)
 
         except Exception as e:
             logger.error("Failed to remove game", exc_info=True)

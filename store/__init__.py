@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 
 from dataclasses import dataclass, field
 from typing import Dict, Optional
+from enum import IntEnum
 import uuid
 
 import logging
@@ -37,7 +38,7 @@ class Table:
     owner: Player
     game: Game
     players: Dict[str, Player] = field(default_factory=dict)
-    message: Optional[int] = None
+    messages: Optional[list["Message"]] = field(default_factory=list)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance
 
 @dataclass(frozen=False)
@@ -53,12 +54,33 @@ class Guild:
     event: "Event"
     roles: list[int] = field(default_factory=list)
 
+@dataclass(init=False)
+class Message:
+    id: int
+    guild_id: int
+    channel_id: int
+    type: "MessageType"
+
+    def __init__(self, id: int, guild_id: int, channel_id: int, type):
+        self.id = id
+        self.guild_id = guild_id
+        self.channel_id = channel_id
+        self.type = MessageType(type) if isinstance(type, int) else type
+
+class MessageType(IntEnum):
+    JOIN = 1 # Join view messages
+    ADD = 2 # Game added view messages
+
 class Store(ABC):
     
     @abstractmethod
     def add_guild(self, guild_id: int, channel_id: int, role_id:int = None) -> Guild:
         pass
     
+    @abstractmethod
+    def update_guild(self, guild: Guild, channel_id: int) -> Guild:
+        pass
+
     @abstractmethod
     def get_guild(self, guild_id: int) -> Guild:
         pass
@@ -72,7 +94,7 @@ class Store(ABC):
         pass
     
     @abstractmethod
-    def add_event(self, guild: Guild, event_id: str) -> Event:
+    def add_event(self, guild: Guild, event_id: str = None) -> Event:
         pass
     
     @abstractmethod
@@ -132,7 +154,23 @@ class Store(ABC):
         pass
 
     @abstractmethod
-    def add_table_message(self, table: Table, message: int) -> Table:
+    def add_table_message(self, table: Table, message: Message) -> Table:
+        pass
+
+    @abstractmethod
+    def get_table_for_message(self, message: int) -> Table:
+        pass
+
+    @abstractmethod
+    def add_message(self, message: Message) -> Message:
+        pass
+
+    @abstractmethod
+    def get_message(self, message_id: int) -> Message:
+        pass
+
+    @abstractmethod
+    def delete_message(self, message: Message) -> None:
         pass
 
     @abstractmethod

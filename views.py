@@ -69,10 +69,17 @@ class GameJoinView(BaseView):
         leave.callback = self.leave_callback
         self.add_item(leave)
 
+        remove_button = discord.ui.Button(emoji="❌",
+            custom_id=f"{table.id}-remove", style=discord.ButtonStyle.blurple)
+        remove_button.callback = self.remove_callback
+        self.add_item(remove_button)
+
     async def update(self, interaction: discord.Interaction):
-        # self.interaction = interaction
         table = self.store.get_table(self.table_id)
         if not table:
+            self.disable_all_items()
+            self.stop()
+            await self._edit(content="Table no longer exists", view=self)
             return
 
         logger.debug("Update join view - %s - %d/%d", table.game.name,
@@ -97,6 +104,19 @@ class GameJoinView(BaseView):
                          user.id, table.id)
             self.store.join_table(player, table)
         await self.update(interaction=interaction)
+    
+    async def remove_callback(self, interaction: discord.Interaction):
+        logger.info("REMOVE BUTTON")
+        table = self.store.get_table(self.table_id)
+        if table and interaction.user.id == table.owner.id:
+            table = self.store.get_table(self.table_id)
+            self.store.remove_table(table)
+            self.disable_all_items()
+            self.stop()
+            await self._edit(content="Table removed", view=None, embed=None)
+        else:
+            await interaction.response.send_message('Only the owner can remove the table', delete_after=5, ephemeral=True)
+
 
     async def leave_callback(self, interaction: discord.Interaction):
         logger.info("LEAVE BUTTON for user %s - id %s",
@@ -105,6 +125,10 @@ class GameJoinView(BaseView):
         table = self.store.get_table(self.table_id)
         player = self.store.get_player(user.id) or Player(
             user.id, user.display_name, user.mention)
+        
+        if not table:
+            await self.update(interaction=interaction)
+            return
 
         logger.debug("player %d table %s - players [%s]", player.id, table.id,
                      ", ".join(str(p.id) for p in table.players.values()))
@@ -126,9 +150,9 @@ class GameChooseView(BaseView):
     @discord.ui.button(row=1, emoji="❌", style=discord.ButtonStyle.blurple)
     async def cancel(self, button: discord.Button, interaction: discord.Interaction):
         logger.info("CHOOSE CANCEL BUTTON")
-        await interaction.response.send_message('Cancelled', delete_after=1, ephemeral=True)
         self.disable_all_items()
         self.stop()
+        await self._edit(content="Cancelled", embed=None, view=None, delete_after=5)
 
     def add_button(self, index: int, game: Game) -> discord.ui.Button:
         label = str(index+1)
@@ -139,8 +163,7 @@ class GameChooseView(BaseView):
             logger.info("CHOOSE BUTTON:- index: %s - game: %s/%s",
                         index, game.id, game.name)
             self.choice = game
-            await interaction.response.send_message(
-                content=f"You chose {game.name}", ephemeral=True)
+            await self._edit(content=f"You chose {game.name}", view=None, embed=None, delete_after=5)
             self.disable_all_items()
             self.stop()
 
@@ -224,8 +247,12 @@ class GuildSettingsView(BaseView):
         
     async def update(self):
         if self.role_choice and self.channel_choice:
-            guild = self.store.get_guild(self.interaction.guild_id) or self.store.add_guild(
-                self.interaction.guild_id, self.channel_choice)
+            guild = self.store.get_guild(self.interaction.guild_id)
+            if guild:
+                if self.channel_choice != guild.channel_id:
+                    self.store.update_guild(guild, self.channel_choice)
+            else:
+                guild = self.store.add_guild(self.interaction.guild_id, self.channel_choice)
 
             self.store.add_role(guild, self.role_choice)
             await self._edit(content="Guild settings updated", view=None)
