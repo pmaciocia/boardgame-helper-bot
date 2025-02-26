@@ -54,7 +54,8 @@ class BaseView(discord.ui.View):
 
 
 class GameJoinView(BaseView):
-    def __init__(self, table: Table, store: Store):
+    def __init__(self, table: Table, store: Store, bot: discord.Client = None):
+        self.bot = bot
         self.table_id = table.id
         self.store = store
         super().__init__(timeout=None)
@@ -109,11 +110,22 @@ class GameJoinView(BaseView):
         logger.info("REMOVE BUTTON")
         table = self.store.get_table(self.table_id)
         if table and interaction.user.id == table.owner.id:
-            table = self.store.get_table(self.table_id)
-            self.store.remove_table(table)
+            game = table.game
             self.disable_all_items()
             self.stop()
-            await self._edit(content="Table removed", view=None, embed=None)
+            await self._edit(content=f"Game {game.name} was removed", view=None, embed=None)
+            
+            if self.bot:
+                messages = table.messages
+                for message in messages:
+                    msg = self.bot.get_message(message.id)
+                    if not msg:
+                        channel = await self.bot.fetch_channel(message.channel_id)
+                        msg = await channel.fetch_message(message.id)
+                    if msg:
+                        await msg.delete()
+                        
+            self.store.remove_table(table)
         else:
             await interaction.response.send_message('Only the owner can remove the table', delete_after=5, ephemeral=True)
 
@@ -238,7 +250,6 @@ class GameListView(BaseView):
 
 
 class GuildSettingsView(BaseView):
-    role_choice: int = None
     channel_choice: int = None
 
     def __init__(self, store: Store):
@@ -246,7 +257,7 @@ class GuildSettingsView(BaseView):
         super().__init__(timeout=None)
         
     async def update(self):
-        if self.role_choice and self.channel_choice:
+        if self.channel_choice:
             guild = self.store.get_guild(self.interaction.guild_id)
             if guild:
                 if self.channel_choice != guild.channel_id:
@@ -254,16 +265,8 @@ class GuildSettingsView(BaseView):
             else:
                 guild = self.store.add_guild(self.interaction.guild_id, self.channel_choice)
 
-            self.store.add_role(guild, self.role_choice)
             await self._edit(content="Guild settings updated", view=None)
             self.stop()
-        else:
-            await self._edit(content="Please select a role and channel", view=self)
-
-    @discord.ui.role_select(placeholder="Select role")
-    async def role_callback(self, select, interaction):
-        self.role_choice = select.values[0].id
-        await self.update()
 
     @discord.ui.channel_select(placeholder="Select channel")
     async def channel_callback(self, select, interaction):

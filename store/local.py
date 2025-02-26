@@ -139,7 +139,6 @@ class _Guild(Base):
     id: str
     channel_id: int
     _event: "_Event" = field(default=None)
-    _roles: list[int] = field(default_factory=list)
 
     @property
     @lazy_load(load="get_event_for_guild_id", keys=["id"])
@@ -150,14 +149,6 @@ class _Guild(Base):
     def event(self, event):
         self._event = event
 
-    @property
-    @lazy_load(load="get_roles_for_guild", keys=["id"])
-    def roles(self):
-        return self._tables
-    
-    @roles.setter
-    def roles(self, roles):
-        self._roles = roles
 
 class SQLiteStore:
     def __init__(self, db_path: str = "bhb.sqlite"):
@@ -178,12 +169,6 @@ class SQLiteStore:
                     id INTEGER PRIMARY KEY,
                     channel_id INTEGER
                 );
-                CREATE TABLE IF NOT EXISTS guild_roles (
-                    guild_id INTEGER,
-                    role_id INTEGER,
-                    UNIQUE(guild_id, role_id) ON CONFLICT IGNORE,
-                    FOREIGN KEY(guild_id) REFERENCES guild(id)
-                );
                 CREATE TABLE IF NOT EXISTS event (
                     id TEXT PRIMARY KEY,
                     guild_id INTEGER NOT NULL,
@@ -195,7 +180,7 @@ class SQLiteStore:
                     event_id TEXT NOT NULL,
                     owner_id INTEGER NOT NULL,
                     game_id INTEGER NOT NULL,
-                    FOREIGN KEY(event_id) REFERENCES event(id),
+                    FOREIGN KEY(event_id) REFERENCES event(id) ON DELETE CASCADE,
                     FOREIGN KEY(owner_id) REFERENCES player(id),
                     FOREIGN KEY(game_id) REFERENCES game(id)
                 );
@@ -292,7 +277,7 @@ class SQLiteStore:
         
         return self.get_event(event_id=event_id)
 
-    def get_event(self, event_id: str = None, load_tables=True) -> List:
+    def get_event(self, event_id: str = None) -> _Event:
         query = "SELECT * FROM event WHERE id = ?"
         logger.info("get event %s", event_id)
         cursor = self.conn.execute(query, (event_id,))
@@ -305,9 +290,9 @@ class SQLiteStore:
         rows = cursor.fetchall()
         return [self.get_event(event_id=row["id"]) for  row in rows]
 
-    def remove_event(self, event_id: str) -> None:
+    def remove_event(self, event: Event) -> None:
         with self.conn:
-            self.conn.execute("DELETE FROM event WHERE id = ?", (event_id,))
+            self.conn.execute("DELETE FROM event WHERE id = ?", (event.id,))
 
     def add_table(self, event: Event, owner: Player, game: Game) -> str:
         table_id = str(uuid.uuid4())
@@ -418,10 +403,19 @@ class SQLiteStore:
             self.conn.execute("DELETE FROM message WHERE id = ?", (message.id,))
             self.conn.execute("DELETE FROM table_message WHERE message_id = ?", (message.id,))
 
-
     def reset(self) -> None:
         with self.conn:
-            self.conn.executescript("DROP TABLE IF EXISTS event; DROP TABLE IF EXISTS _table; DROP TABLE IF EXISTS player; DROP TABLE IF EXISTS games;")
+            self.conn.executescript("""
+                DROP TABLE IF EXISTS guild_roles;
+                DROP TABLE IF EXISTS table_player;
+                DROP TABLE IF EXISTS table_message;
+                DROP TABLE IF EXISTS event;
+                DROP TABLE IF EXISTS _table;
+                DROP TABLE IF EXISTS player;
+                DROP TABLE IF EXISTS game;
+                DROP TABLE IF EXISTS message;
+                DROP TABLE IF EXISTS guild;
+            """)
             self._initialize_db()
 
 

@@ -52,7 +52,6 @@ class Guild:
     id: str
     channel_id: int
     event: "Event"
-    roles: list[int] = field(default_factory=list)
 
 @dataclass(init=False)
 class Message:
