@@ -87,7 +87,7 @@ class GameJoinView(BaseView):
                      len(table.players), table.game.maxplayers)
         self.children[0].disabled = len(table.players) == table.game.maxplayers
 
-        e = GameEmbed(table, list_players=True)
+        e = GameEmbed(table, list_players=True, show_note=True)
         await self._edit(embed=e, view=self)
 
     async def join_callback(self, interaction: discord.Interaction):
@@ -214,8 +214,7 @@ class GameListView(BaseView):
         l.disabled = self.index == 0
         r.disabled = self.index == len(self.tables)-1
 
-        e = GameEmbed(table, list_players=True)
-        await self._edit(embed=e, view=self)
+        await self._edit(embed=GameEmbed(table, list_players=True), view=self)
 
     @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.blurple)
     async def previous(self, button: discord.Button, interaction: discord.Interaction):

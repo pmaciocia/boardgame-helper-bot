@@ -52,6 +52,7 @@ class _Table(Base):
     event_id: str
     owner_id: str
     game_id: str
+    note: str = ""
 
     _event: "Event" = field(default=None)
     _owner: Player = field(default=None)
@@ -180,6 +181,7 @@ class SQLiteStore:
                     event_id TEXT NOT NULL,
                     owner_id INTEGER NOT NULL,
                     game_id INTEGER NOT NULL,
+                    note TEXT,
                     FOREIGN KEY(event_id) REFERENCES event(id) ON DELETE CASCADE,
                     FOREIGN KEY(owner_id) REFERENCES player(id),
                     FOREIGN KEY(game_id) REFERENCES game(id)
@@ -264,8 +266,7 @@ class SQLiteStore:
             self.conn.execute("DELETE FROM guild_roles WHERE guild_id = ?", (guild.id,))
            
     def get_event_for_guild_id(self, guild_id: int):
-        query = "SELECT * FROM event WHERE guild_id = ?"
-        cursor = self.conn.execute(query, (guild_id,))
+        cursor = self.conn.execute("SELECT * FROM event WHERE guild_id = ?", (guild_id,))
         row = cursor.fetchone()
         return _Event(**row) if row else None
 
@@ -278,27 +279,24 @@ class SQLiteStore:
         return self.get_event(event_id=event_id)
 
     def get_event(self, event_id: str = None) -> _Event:
-        query = "SELECT * FROM event WHERE id = ?"
-        logger.info("get event %s", event_id)
-        cursor = self.conn.execute(query, (event_id,))
+        cursor = self.conn.execute( "SELECT * FROM event WHERE id = ?", (event_id,))
         row = cursor.fetchone()
         return _Event(**row) if row else None
     
     def get_all_events(self) -> List:
-        query = "SELECT id FROM event"
-        cursor = self.conn.execute(query)
+        cursor = self.conn.execute("SELECT * FROM event")
         rows = cursor.fetchall()
-        return [self.get_event(event_id=row["id"]) for  row in rows]
+        return [_Event(**row) for row in rows]
 
     def remove_event(self, event: Event) -> None:
         with self.conn:
             self.conn.execute("DELETE FROM event WHERE id = ?", (event.id,))
 
-    def add_table(self, event: Event, owner: Player, game: Game) -> str:
+    def add_table(self, event: Event, owner: Player, game: Game, note: str=None) -> str:
         table_id = str(uuid.uuid4())
         with self.conn:
-            self.conn.execute("INSERT INTO _table (id, event_id, owner_id, game_id) VALUES (?, ?, ?, ?)",
-                              (table_id, event.id, owner.id, game.id))
+            self.conn.execute("INSERT INTO _table (id, event_id, owner_id, game_id, note) VALUES (?, ?, ?, ?, ?)",
+                              (table_id, event.id, owner.id, game.id, note or ""))
         return self.get_table(table_id=table_id)
 
     def get_table(self, table_id: str):

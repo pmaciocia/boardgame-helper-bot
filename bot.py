@@ -12,9 +12,7 @@ env.read_env()
 
 token = env.str("DISCORD_TOKEN")
 
-
 def main():
-
     bot = commands.Bot(intents=discord.Intents.default())
     async def on_ready():
         logger.info('%s has connected to Discord!', bot.user)

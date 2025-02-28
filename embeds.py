@@ -1,9 +1,6 @@
 
 import discord
 from store import Table, Game
-from boardgamegeek.objects.games import BoardGame
-
-
 
 class PlayerListEmbed(discord.Embed):
     def __init__(self, table: Table):
@@ -26,11 +23,11 @@ class GamesEmbed(discord.Embed):
         desc = "\n".join(f"{idx+1}: [{game.name}]({game.link}) ({game.year})"
                          for idx, game in enumerate(games))
         super().__init__(
-            title=f"Games matching '{name}' (top 10 ranked results)", description=desc)
+            title=f"Games matching '{name}' (top {len(games)} ranked results)", description=desc)
 
 
 class GameEmbed(discord.Embed):
-    def __init__(self, table: Table, list_players=False):
+    def __init__(self, table: Table, list_players=False, show_note=False):
         owner = table.owner
         game = table.game
         super().__init__(title=game.name, url=game.link,
@@ -46,6 +43,9 @@ class GameEmbed(discord.Embed):
             name="Best", value=game.recommended_players, inline=True)
         self.add_field(name="Description", value=description)
         self.set_thumbnail(url=game.thumbnail)
+
+        if show_note:
+            self.add_field(name="Note", value=table.note, inline=False)
 
         if list_players and len(table.players) > 0:
             self.add_field(name="Currently signed up to play:",

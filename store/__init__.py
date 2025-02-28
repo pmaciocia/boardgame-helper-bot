@@ -37,6 +37,7 @@ class Table:
     event: "Event"
     owner: Player
     game: Game
+    note: Optional[str] = ""
     players: Dict[str, Player] = field(default_factory=dict)
     messages: Optional[list["Message"]] = field(default_factory=list)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance

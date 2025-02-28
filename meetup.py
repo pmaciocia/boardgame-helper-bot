@@ -23,9 +23,6 @@ cache.setup("disk://?directory=/tmp/cache&timeout=1&shards=0")
 
 logger = logging.getLogger("boardgame.helper.games")
 
-signup_channel = 1339272062946246696
-
-
 def is_guild_owner():
     def predicate(ctx):
         return ctx.guild is not None and ctx.guild.owner_id == ctx.author.id
@@ -52,19 +49,19 @@ class Meetup(commands.Cog):
                             table, self.store, self.bot), message_id=message.id)
                 
     @commands.check_any(commands.is_owner(), is_guild_owner())
-    @manage.command(name='reset', help='Reset the games')
+    @manage.command(name='reset', description='Reset the games')
     async def reset(self, ctx: discord.ApplicationContext):
-        self.store.reset()
         await ctx.defer()
+        self.store.reset()
     
     @commands.check_any(commands.is_owner())
-    @manage.command(name='sync', help='Resync bot commands')
+    @manage.command(name='sync', description='Resync bot commands')
     async def sync(self, ctx: discord.ApplicationContext):
-        self.bot.sync_commands()
         await ctx.defer()
+        await self.bot.sync_commands()
         
     @commands.check_any(commands.is_owner(), is_guild_owner())
-    @manage.command(name='settings', help='Manage settings for this guild')
+    @manage.command(name='settings', description='Manage settings for this guild')
     async def settings(self, ctx: discord.ApplicationContext):
         view = GuildSettingsView(self.store)
         msg = await ctx.respond("Please select a channel", view=view, ephemeral=True)
@@ -74,14 +71,14 @@ class Meetup(commands.Cog):
         logger.info("view.await() - channel=%d", view.channel_choice)
     
     @commands.check_any(commands.is_owner(), is_guild_owner())
-    @manage.command(name='clean', help='Remove bot messages from today')
+    @manage.command(name='clean', description='Remove bot messages from today')
     async def clean(self, ctx: discord.ApplicationContext):
         start = datetime.combine(datetime.now(UTC), time.min)
         channel = await self.bot.fetch_channel(ctx.channel_id)
         await ctx.defer()
         await channel.purge(after=start, check=lambda m: m.author == self.bot.user, bulk=True)
         
-    @manage.command(name='create_event', help='Create a new event')
+    @manage.command(name='create_event', description='Create a new event')
     async def create_event(self, ctx: discord.ApplicationContext):
         guild = ctx.guild
         logger.info(f"Create event for guild {guild.id}")
@@ -99,7 +96,7 @@ class Meetup(commands.Cog):
             logger.error("Failed to create event", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
 
-    @manage.command(name='delete_event', help='Delete the current event')
+    @manage.command(name='delete_event', description='Delete the current event')
     async def delete_event(self, ctx: discord.ApplicationContext):
         guild = ctx.guild
         logger.info(f"Delete event for guild {guild.id}")
@@ -118,8 +115,8 @@ class Meetup(commands.Cog):
             logger.error("Failed to delete event", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
 
-    @games.command(name='add', help='Add a game you are bringing')
-    async def add_game(self, ctx: discord.ApplicationContext, game_name: str):
+    @games.command(name='add', description='Add a game you are bringing')
+    async def add_game(self, ctx: discord.ApplicationContext, game_name: str, note: str = None):
         user = ctx.author
         guild = ctx.guild
 
@@ -166,7 +163,7 @@ class Meetup(commands.Cog):
                 game = view.choice
 
             game = self.store.add_game(game)
-            table = self.store.add_table(event, owner, game)
+            table = self.store.add_table(event, owner, game, note)
             if guild.channel_id != ctx.channel_id:
                 add_msg = await ctx.respond(embed=GameEmbed(table))
                 table = self.store.add_table_message(table, Message(add_msg.id, guild.id, ctx.channel_id, MessageType.ADD))
@@ -175,7 +172,7 @@ class Meetup(commands.Cog):
             join_view = GameJoinView(table, self.store, self.bot)
             join_message = await channel.send(
                 content="Click to join",
-                embed=GameEmbed(table, list_players=True),
+                embed=GameEmbed(table, list_players=True, show_note=True),
                 view=join_view
             )
             join_view.message = join_message
@@ -184,7 +181,7 @@ class Meetup(commands.Cog):
             logger.error("Failed to add game", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
 
-    @games.command(name='remove', help='Remove a game you were bringing')
+    @games.command(name='remove', description='Remove a game you were bringing')
     async def remove_game(self, ctx: discord.ApplicationContext):
         user = ctx.author
         guild = ctx.guild
@@ -234,7 +231,7 @@ class Meetup(commands.Cog):
             logger.error("Failed to remove game", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
 
-    @games.command(name='list', help='List games that people are bringing')
+    @games.command(name='list', description='List games that people are bringing')
     async def list_games(self, ctx: discord.ApplicationContext):
         user = ctx.author
         guild = ctx.guild
@@ -269,7 +266,7 @@ class Meetup(commands.Cog):
             logger.error("Failed to list games", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
 
-    @games.command(name='players', help='List people that want to play your game')
+    @games.command(name='players', description='List people that want to play your game')
     async def list_players(self, ctx):
         user = ctx.author
         guild = ctx.guild
@@ -296,7 +293,7 @@ class Meetup(commands.Cog):
             logger.error("Failed to list players", exc_info=True)
             await ctx.respond(content="Failed", ephemeral=True, delete_after=5)
 
-    @games.command(name='join', help='Join a game that someone is bringing')
+    @games.command(name='join', description='Join a game that someone is bringing')
     async def join_game(self, ctx: discord.ApplicationContext):
         user = ctx.author
         guild = ctx.guild
@@ -354,7 +351,6 @@ class Meetup(commands.Cog):
 
             ids = [game.id for game in search]
             games = []
-
             for group in [ids[i:i + 20] for i in range(0, len(ids), 20)]:
                 gs = self.bgg.game_list(group)
                 games.extend(bgg_to_game(bg) for bg in gs)
