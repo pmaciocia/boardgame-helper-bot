@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 from enum import IntEnum
-import uuid
+from nanoid import generate
 
 import logging
 logger = logging.getLogger("boardgame.helper.store")
@@ -40,7 +40,7 @@ class Table:
     note: Optional[str] = ""
     players: Dict[str, Player] = field(default_factory=dict)
     messages: Optional[list["Message"]] = field(default_factory=list)
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance
+    id: str = field(default_factory=lambda: generate(size=10))  # Generate unique ID per instance
 
 @dataclass(frozen=False)
 class Event:

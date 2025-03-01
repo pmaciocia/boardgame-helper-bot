@@ -5,10 +5,11 @@ import logging
 logger = logging.getLogger("boardgame.helper.store.local")
 
 import sqlite3
-import uuid
+
 from typing import Optional, Dict, List
 from dataclasses import dataclass, field
 from functools import wraps
+from nanoid import generate
 
 def lazy_load(load: str, keys: list[str]):
     def _decorate(func):
@@ -60,7 +61,7 @@ class _Table(Base):
 
     _players: Dict[str, Player] = field(default_factory=dict)
     _messages: Optional[list["Message"]] = field(default_factory=list)
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance
+    id: str = field(default_factory=lambda: generate(size=10))  # Generate unique ID per instance
 
     @property
     @lazy_load(load="get_event", keys=["event_id"])
@@ -114,7 +115,7 @@ class _Event(Base):
     channel_id: int
     _guild: "_Guild" = field(default=None)
     _tables: Dict[str, Table] = field(default_factory=dict)
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Generate unique ID per instance
+    id: str = field(default_factory=lambda: generate(size=10))  # Generate unique ID per instance
 
     @property
     @lazy_load(load="get_tables_for_event", keys=["id"])

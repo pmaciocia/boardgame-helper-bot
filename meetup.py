@@ -53,12 +53,15 @@ class Meetup(commands.Cog):
     async def reset(self, ctx: discord.ApplicationContext):
         await ctx.defer()
         self.store.reset()
+        await ctx.respond("DB reset", ephemeral=True)
     
     @commands.check_any(commands.is_owner())
     @manage.command(name='sync', description='Resync bot commands')
     async def sync(self, ctx: discord.ApplicationContext):
         await ctx.defer()
         await self.bot.sync_commands()
+        await ctx.respond("Commands resynced", ephemeral=True)
+
         
     @commands.check_any(commands.is_owner(), is_guild_owner())
     @manage.command(name='settings', description='Manage settings for this guild')
@@ -77,6 +80,7 @@ class Meetup(commands.Cog):
         channel = await self.bot.fetch_channel(ctx.channel_id)
         await ctx.defer()
         await channel.purge(after=start, check=lambda m: m.author == self.bot.user, bulk=True)
+        await ctx.respond("Messages removed", ephemeral=True)
         
     @manage.command(name='create_event', description='Create a new event')
     async def create_event(self, ctx: discord.ApplicationContext):
@@ -109,6 +113,14 @@ class Meetup(commands.Cog):
                 return
 
             event = guild.event
+
+            for table in event.tables.values():
+                for message in table.messages:
+                    msg = await get_message(self.bot, message.id, message.channel_id)
+                    if msg:
+                        await msg.delete()
+
+            # cascade delete tables etc.
             self.store.remove_event(event)
             await ctx.respond("Event deleted", ephemeral=True, delete_after=5)
         except Exception as e:
@@ -164,6 +176,7 @@ class Meetup(commands.Cog):
 
             game = self.store.add_game(game)
             table = self.store.add_table(event, owner, game, note)
+            table = self.store.join_table(owner, table)
             if guild.channel_id != ctx.channel_id:
                 add_msg = await ctx.respond(embed=GameEmbed(table))
                 table = self.store.add_table_message(table, Message(add_msg.id, guild.id, ctx.channel_id, MessageType.ADD))
@@ -336,6 +349,9 @@ class Meetup(commands.Cog):
         return await run_sync_method(self.lookup, name=name, id=id)
 
     def lookup(self, name=None, id=None) -> Iterator[Game]:
+        if not (name or id):
+            return []
+
         logger.info("doing lookup id=%s name=%s", id, name)
 
         if id:
