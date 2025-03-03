@@ -273,7 +273,7 @@ class SQLiteStore:
 
     def add_event(self, guild: Guild, event_id: str = None):
         if event_id is None:
-            event_id = str(uuid.uuid4())
+            event_id = generate(size=10)
         with self.conn:
             self.conn.execute("INSERT INTO event (id, guild_id, channel_id) VALUES (?, ?, ?)", (event_id, guild.id, guild.channel_id))
         
@@ -294,7 +294,7 @@ class SQLiteStore:
             self.conn.execute("DELETE FROM event WHERE id = ?", (event.id,))
 
     def add_table(self, event: Event, owner: Player, game: Game, note: str=None) -> str:
-        table_id = str(uuid.uuid4())
+        table_id = generate(size=10)
         with self.conn:
             self.conn.execute("INSERT INTO _table (id, event_id, owner_id, game_id, note) VALUES (?, ?, ?, ?, ?)",
                               (table_id, event.id, owner.id, game.id, note or ""))

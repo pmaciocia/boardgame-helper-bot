@@ -7,9 +7,9 @@ import logging
 
 import discord
 import discord.ext
-import discord.ext.pages
 from embeds import GameEmbed
 from store import Store, Table, Player, Game, Event
+from utils import get_message
 
 logger = logging.getLogger("boardgame.helper.view")
 
@@ -92,7 +92,7 @@ class GameJoinView(BaseView):
 
     async def join_callback(self, interaction: discord.Interaction):
         logger.info("JOIN BUTTON for user %s - id %s",
-                    interaction.user.id, interaction.custom_id)
+                    interaction.user.id, interaction.id)
         user = interaction.user
         table = self.store.get_table(self.table_id)
         player = self.store.get_player(user.id)
@@ -107,21 +107,19 @@ class GameJoinView(BaseView):
         await self.update(interaction=interaction)
     
     async def remove_callback(self, interaction: discord.Interaction):
-        logger.info("REMOVE BUTTON")
+        logger.info("REMOVE BUTTON for user %s - id %s",
+                    interaction.user.id, interaction.id)        
         table = self.store.get_table(self.table_id)
         if table and interaction.user.id == table.owner.id:
             game = table.game
-            self.disable_all_items()
+            self.clear_items()
             self.stop()
             await self._edit(content=f"Game {game.name} was removed", view=None, embed=None)
             
             if self.bot:
                 messages = table.messages
                 for message in messages:
-                    msg = self.bot.get_message(message.id)
-                    if not msg:
-                        channel = await self.bot.fetch_channel(message.channel_id)
-                        msg = await channel.fetch_message(message.id)
+                    msg = await get_message(self.bot, message.id, message.channel_id)
                     if msg:
                         await msg.delete()
                         
@@ -132,7 +130,7 @@ class GameJoinView(BaseView):
 
     async def leave_callback(self, interaction: discord.Interaction):
         logger.info("LEAVE BUTTON for user %s - id %s",
-                    interaction.user.id, interaction.custom_id)
+                    interaction.user.id, interaction.id)
         user = interaction.user
         table = self.store.get_table(self.table_id)
         player = self.store.get_player(user.id) or Player(
@@ -155,7 +153,7 @@ class GameChooseView(BaseView):
     def __init__(self, games: list, timeout: int = 300):
         self.choice = None
         games = games[0:5]
-        super().__init__(disable_on_timeout=True, timeout=timeout)
+        super().__init__(timeout=timeout)
         for idx, game in enumerate(games):
             self.add_button(index=idx, game=game)
 
@@ -176,7 +174,7 @@ class GameChooseView(BaseView):
                         index, game.id, game.name)
             self.choice = game
             await self._edit(content=f"You chose {game.name}", view=None, embed=None, delete_after=5)
-            self.disable_all_items()
+            self.clear_items()
             self.stop()
 
         button.callback = callback
@@ -267,7 +265,7 @@ class GuildSettingsView(BaseView):
             await self._edit(content="Guild settings updated", view=None)
             self.stop()
 
-    @discord.ui.channel_select(placeholder="Select channel")
+    @discord.ui.select(cls=discord.ui.ChannelSelect, placeholder="Select channel")
     async def channel_callback(self, select, interaction):
         self.channel_choice = select.values[0].id
         await self.update()

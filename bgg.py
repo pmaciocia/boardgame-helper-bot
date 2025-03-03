@@ -4,6 +4,8 @@ from boardgamegeek import BGGClient, BGGRestrictSearchResultsTo
 import discord
 import sys
 from discord.ext import commands
+from discord.ext.commands import Context
+from discord.app_commands import command
 
 from functools import lru_cache
 
@@ -38,9 +40,8 @@ class BGGCog(commands.Cog, name="BGG"):
 
             return sorted(games, key=lambda g: g.boardgame_rank or sys.maxsize)
 
-    # @commands.command(name='bg', help='Lookup a board game')
-    @discord.slash_command()
-    async def lookup(self, ctx: discord.ApplicationContext, game_name: str):
+    @command(name='lookup', description="Look up a board game on BoardGameGeek")
+    async def lookup(self, ctx: Context, game_name: str):
         user = ctx.author
 
         logger.info(f"Looking up game '{game_name}' for user {user.id}")
@@ -86,6 +87,3 @@ class BGGCog(commands.Cog, name="BGG"):
 
             embed.set_footer(text="Sorted by descending rank")
             await ctx.respond(embed=embed)
-
-def setup(bot):
-    bot.add_cog(BGGCog(bot))
