@@ -2,7 +2,8 @@
 from . import *
 import logging
 
-logger = logging.getLogger("boardgame.helper.store.local")
+from utils import setup_logging
+logger = setup_logging("boardgame.helper.store.local")
 
 import sqlite3
 

@@ -6,8 +6,9 @@ from typing import Dict, Optional
 from enum import IntEnum
 from nanoid import generate
 
-import logging
-logger = logging.getLogger("boardgame.helper.store")
+from utils import setup_logging
+logger = setup_logging("boardgame.helper.store")
+
 
 @dataclass(frozen=True)
 class Game:

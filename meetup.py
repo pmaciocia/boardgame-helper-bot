@@ -1,4 +1,4 @@
-import logging
+import colorlog
 import asyncio
 import functools
 import sys
@@ -11,6 +11,7 @@ from discord.app_commands import Group
 from discord.ext import commands
 from discord.ext.commands import Context
 from discord.ext.commands.bot import Bot
+from discord.utils import _ColourFormatter
 
 
 from boardgamegeek import BGGClient, BGGRestrictSearchResultsTo
@@ -25,7 +26,9 @@ from cashews import cache, noself
 
 cache.setup("disk://?directory=/tmp/cache&timeout=1&shards=0")
 
-logger = logging.getLogger("boardgame.helper.games")
+from utils import setup_logging
+logger = setup_logging("boardgame.helper.games")
+
 
 def is_guild_owner():
     def predicate(ctx):
@@ -297,16 +300,15 @@ class Meetup(commands.Cog):
                 response = f"No upcoming events for this server"
                 await interaction.response.send_message(response, ephemeral=True)
                 return
-            
             event = guild.event
+            
             player = self.store.get_player(user.id)
-
-            table = event.tables[player.id]
-            if table is None:
+            if player is None or event.tables[player.id] is None:
                 response = f"{user.mention}, you are not bringing any games"
-                await interaction.response.send_message(response, ephemeral=True)
+                await interaction.response.send_message(response, ephemeral=True, delete_after=5)
                 return
-
+            
+            table = event.tables[player.id]
             await interaction.response.send_message(embed=PlayerListEmbed(table), ephemeral=True)
         except Exception as e:
             logger.error("Failed to list players", exc_info=True)

@@ -7,10 +7,8 @@ from meetup import Meetup
 from store.local import SQLiteStore
 from bgg import BGGCog
 
-import logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("boardgame.helper")
-logger.setLevel(logging.DEBUG)
+from utils import setup_logging
+logger = setup_logging("boardgame.helper.bot")
 
 env = Env()
 env.read_env()

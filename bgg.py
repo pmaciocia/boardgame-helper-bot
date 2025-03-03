@@ -9,7 +9,8 @@ from discord.app_commands import command
 
 from functools import lru_cache
 
-logger = logging.getLogger("boardgame.helper.bgg")
+from utils import setup_logging
+logger = setup_logging("boardgame.helper.bgg")
 
 class BGGCog(commands.Cog, name="BGG"):
     

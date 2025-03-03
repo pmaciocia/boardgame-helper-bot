@@ -266,6 +266,6 @@ class GuildSettingsView(BaseView):
             self.stop()
 
     @discord.ui.select(cls=discord.ui.ChannelSelect, placeholder="Select channel")
-    async def channel_callback(self, select, interaction):
+    async def channel_callback(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
         self.channel_choice = select.values[0].id
         await self.update()

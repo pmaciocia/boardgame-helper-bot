@@ -44,7 +44,7 @@ class GameEmbed(discord.Embed):
         self.add_field(name="Description", value=description)
         self.set_thumbnail(url=game.thumbnail)
 
-        if show_note:
+        if show_note and table.note:
             self.add_field(name="Note", value=table.note, inline=False)
 
         if list_players and len(table.players) > 0:
