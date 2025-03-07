@@ -1,4 +1,3 @@
-import colorlog
 import asyncio
 import functools
 import sys
@@ -9,9 +8,7 @@ from typing import Iterator
 import discord
 from discord.app_commands import Group
 from discord.ext import commands
-from discord.ext.commands import Context
 from discord.ext.commands.bot import Bot
-from discord.utils import _ColourFormatter
 
 
 from boardgamegeek import BGGClient, BGGRestrictSearchResultsTo
@@ -28,7 +25,6 @@ cache.setup("disk://?directory=/tmp/cache&timeout=1&shards=0")
 
 from utils import setup_logging
 logger = setup_logging("boardgame.helper.games")
-
 
 def is_guild_owner():
     def predicate(ctx):
